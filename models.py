@@ -27,6 +27,7 @@ class Artifact:
     original_path: str
     embedded_data_uri: str | None = None
     missing: bool = False
+    artifact_id: str = ""
 
 
 @dataclass
@@ -133,3 +134,7 @@ class ReportData:
     errors: list[str] = field(default_factory=list)  # erros não fatais de parsing
     version: str = "sem versão"
     title: str = "Relatório de Execução — Testes BDD"
+    environment: dict[str, str] = field(default_factory=dict)
+    flaky_tests: list[dict[str, object]] = field(default_factory=list)
+    issue_url_pattern: str = ""
+    delta_stats: dict[str, object] = field(default_factory=dict)

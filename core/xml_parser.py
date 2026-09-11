@@ -200,6 +200,7 @@ class RobotOutputParser:
         self.output_xml_path = Path(output_xml_path)
         self.errors: list[str] = []
         self.execution_start = None
+        self.environment: dict[str, str] = {}
 
     def parse(self) -> tuple[list[SuiteResult], ExecutionStats]:
         if not self.output_xml_path.exists():
@@ -212,6 +213,11 @@ class RobotOutputParser:
             # de schema incompatível.
             logger.error("Falha ao carregar output.xml: %s", exc)
             raise ValueError(f"output.xml malformado ou incompatível: {exc}") from exc
+
+        self.environment = {
+            "generator": getattr(result, "generator", "") or "Robot Framework",
+            "rpa": "Sim" if getattr(result, "rpa", False) else "Não",
+        }
 
         visitor = _CollectorVisitor()
         try:

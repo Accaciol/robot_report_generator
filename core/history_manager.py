@@ -109,6 +109,81 @@ class HistoryManager:
             collect(suite)
         return snapshots
 
+    @staticmethod
+    def detect_flaky_tests(history: list[HistoryEntry]) -> list[dict[str, object]]:
+        """Identifica testes que alternaram entre PASS e FAIL ao longo do histórico."""
+        if len(history) < 2:
+            return []
+
+        test_runs: dict[str, list[tuple[str, str, str]]] = {}
+        for entry in history:
+            for t in entry.tests:
+                sid = str(t.get("stable_id", ""))
+                st = str(t.get("status", ""))
+                tname = str(t.get("test_name", sid))
+                sname = str(t.get("suite_name", ""))
+                if sid not in test_runs:
+                    test_runs[sid] = []
+                test_runs[sid].append((st, tname, sname))
+
+        flaky = []
+        for sid, runs in test_runs.items():
+            if len(runs) < 2:
+                continue
+            flips = 0
+            pass_count = 0
+            fail_count = 0
+            prev_status = None
+            for st, _, _ in runs:
+                if st == "PASS":
+                    pass_count += 1
+                elif st == "FAIL":
+                    fail_count += 1
+                if prev_status is not None and st in ("PASS", "FAIL") and prev_status in ("PASS", "FAIL") and st != prev_status:
+                    flips += 1
+                if st in ("PASS", "FAIL"):
+                    prev_status = st
+
+            if flips >= 1 and pass_count >= 1 and fail_count >= 1:
+                total = len(runs)
+                stability = round((1.0 - (flips / total)) * 100, 1)
+                _, tname, sname = runs[-1]
+                flaky.append({
+                    "stable_id": sid,
+                    "test_name": tname,
+                    "suite_name": sname,
+                    "flips": flips,
+                    "total_runs": total,
+                    "pass_count": pass_count,
+                    "fail_count": fail_count,
+                    "stability": max(0.0, stability),
+                    "last_status": runs[-1][0],
+                })
+
+        flaky.sort(key=lambda x: (x["flips"], -float(x["stability"])), reverse=True)
+        return flaky
+
+    @staticmethod
+    def compute_delta_stats(current_stats: ExecutionStats, history: list[HistoryEntry]) -> dict[str, object]:
+        """Calcula a variação de métricas em relação à execução anterior."""
+        if len(history) < 2:
+            return {}
+        prev = history[-2]
+        pass_rate_delta = round(current_stats.pass_rate - prev.pass_rate, 2)
+        elapsed_delta = round(current_stats.elapsed_s - prev.elapsed_s, 2)
+        failed_delta = current_stats.failed - prev.failed
+
+        return {
+            "has_delta": True,
+            "prev_version": prev.version,
+            "pass_rate_delta": pass_rate_delta,
+            "pass_rate_delta_str": f"+{pass_rate_delta}%" if pass_rate_delta > 0 else f"{pass_rate_delta}%",
+            "elapsed_delta": elapsed_delta,
+            "elapsed_delta_str": f"+{elapsed_delta:.1f}s" if elapsed_delta > 0 else f"{elapsed_delta:.1f}s",
+            "failed_delta": failed_delta,
+            "failed_delta_str": f"+{failed_delta}" if failed_delta > 0 else f"{failed_delta}",
+        }
+
     def _save(self, history: list[HistoryEntry]) -> None:
         try:
             self.history_path.write_text(

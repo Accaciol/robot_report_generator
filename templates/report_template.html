@@ -9,22 +9,24 @@
     --pass: #1e8e3e; --fail: #d93025; --skip: #f9ab00; --bg: #f5f6f8;
     --card-bg: #ffffff; --border: #e0e0e0; --text: #202124; --muted: #5f6368;
     --accent: #1a73e8; --header-bg: #ffffff; --hover: #eef1f4; --code-bg: #fdecea;
-    --code-text: #c5221f; --tag-bg: #e8f0fe; --tag-text: #1967d2;
+    --code-text: #c5221f; --tag-bg: #e8f0fe; --tag-text: #1967d2; --flaky: #e37400;
   }
   [data-theme="dark"] {
     --pass: #34a853; --fail: #ea4335; --skip: #fbbc04; --bg: #121212;
     --card-bg: #1e1e1e; --border: #333333; --text: #e8eaed; --muted: #9aa0a6;
     --accent: #8ab4f8; --header-bg: #1e1e1e; --hover: #2d2d2d; --code-bg: #3c1f1e;
-    --code-text: #f28b82; --tag-bg: #2d3748; --tag-text: #8ab4f8;
+    --code-text: #f28b82; --tag-bg: #2d3748; --tag-text: #8ab4f8; --flaky: #f2994a;
   }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background .2s, color .2s; }
   header { background: var(--header-bg); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
   header h1 { margin: 0; font-size: 20px; }
   header .meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
-  .header-actions { display: flex; align-items: center; gap: 10px; }
-  .theme-toggle-btn { background: var(--card-bg); border: 1px solid var(--border); color: var(--text); padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
-  .theme-toggle-btn:hover { background: var(--hover); }
+  .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .action-btn { background: var(--card-bg); border: 1px solid var(--border); color: var(--text); padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+  .action-btn:hover { background: var(--hover); }
+
+  .env-strip { background: var(--hover); border-bottom: 1px solid var(--border); padding: 6px 24px; font-size: 12px; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
 
   .tabs { display: flex; gap: 4px; padding: 0 24px; background: var(--header-bg); border-bottom: 1px solid var(--border); overflow-x: auto; }
   .tab-btn { padding: 12px 18px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--muted); border-bottom: 3px solid transparent; white-space: nowrap; }
@@ -35,12 +37,18 @@
   .tab-panel.active { display: block; }
 
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 24px; }
-  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; position: relative; }
   .card .value { font-size: 28px; font-weight: 700; }
   .card .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .card .delta-tag { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 10px; margin-top: 4px; display: inline-block; }
+  .delta-pos { background: rgba(30,142,62,0.15); color: var(--pass); }
+  .delta-neg { background: rgba(217,48,37,0.15); color: var(--fail); }
   .card.pass .value { color: var(--pass); }
   .card.fail .value { color: var(--fail); }
   .card.skip .value { color: var(--skip); }
+
+  .charts-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 24px; }
+  @media (max-width: 860px) { .charts-grid { grid-template-columns: 1fr; } }
 
   .panel-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 24px; }
   .panel-box h2 { margin-top: 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
@@ -54,6 +62,8 @@
   .badge.FAIL { background: var(--fail); }
   .badge.SKIP { background: var(--skip); }
   .badge.NOT_RUN { background: var(--muted); }
+
+  .flaky-badge { display: inline-flex; align-items: center; gap: 4px; background: rgba(227, 116, 0, 0.15); color: var(--flaky); font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(227, 116, 0, 0.3); }
 
   /* Árvore técnica e Filtros */
   .tree-toolbar { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 16px; }
@@ -72,9 +82,10 @@
 
   .tags-panel { margin-bottom: 16px; }
   .tags-container { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-  .tag-pill { display: inline-flex; align-items: center; gap: 4px; background: var(--tag-bg); color: var(--tag-text); padding: 3px 10px; border-radius: 12px; font-size: 11px; cursor: pointer; user-select: none; border: 1px solid transparent; }
+  .tag-pill { display: inline-flex; align-items: center; gap: 4px; background: var(--tag-bg); color: var(--tag-text); padding: 3px 10px; border-radius: 12px; font-size: 11px; cursor: pointer; user-select: none; border: 1px solid transparent; text-decoration: none; }
   .tag-pill:hover { border-color: var(--accent); }
   .tag-pill.active { background: var(--accent); color: #fff; }
+  .tag-link { color: inherit; text-decoration: underline; }
 
   .suite-node { margin-left: 0; margin-bottom: 8px; }
   .suite-title { cursor: pointer; font-weight: 600; padding: 6px 8px; background: var(--hover); border-radius: 4px; display: flex; align-items: center; justify-content: space-between; }
@@ -120,6 +131,16 @@
   .warn-box { background: #fff8e1; border: 1px solid #f9ab00; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; color: #7f5100; }
   [data-theme="dark"] .warn-box { background: #332700; color: #ffeb87; }
   canvas#trendChart { max-height: 320px; }
+  canvas#donutChart { max-height: 260px; }
+
+  /* Impressão Limpa / PDF */
+  @media print {
+    header .header-actions, .tabs, .tree-toolbar, .tags-panel, .copy-btn, .version-filter, .version-toolbar, .lightbox { display: none !important; }
+    .tab-panel { display: block !important; margin-bottom: 30px; }
+    body { background: #fff !important; color: #000 !important; }
+    .panel-box, .card, .failure-card { border: 1px solid #ccc !important; box-shadow: none !important; break-inside: avoid; }
+    .suite-children, .test-children, .kw-children { display: block !important; }
+  }
 </style>
 </head>
 <body>
@@ -127,12 +148,21 @@
 <header>
   <div>
     <h1>{{ title }}</h1>
-    <div class="meta">Gerado em {{ generated_at }} · Versão: {{ version }} · Fonte: output.xml (Robot Framework)</div>
+    <div class="meta">Gerado em {{ generated_at }} · Versão: {{ version }} · Fonte: output.xml</div>
   </div>
   <div class="header-actions">
-    <button id="themeToggle" class="theme-toggle-btn" type="button" aria-label="Alternar tema">🌙 Modo Escuro</button>
+    <button id="copyChatSummary" class="action-btn" type="button" aria-label="Copiar Resumo para Slack/Teams">💬 Resumo p/ Chat</button>
+    <button id="themeToggle" class="action-btn" type="button" aria-label="Alternar tema">🌙 Modo Escuro</button>
   </div>
 </header>
+
+{% if environment %}
+<div class="env-strip">
+  {% if environment.generator %}<span>⚙️ <strong>Executor:</strong> {{ environment.generator }}</span>{% endif %}
+  {% if environment.rpa %}<span>🤖 <strong>RPA:</strong> {{ environment.rpa }}</span>{% endif %}
+  <span>💻 <strong>Modo:</strong> Standalone HTML</span>
+</div>
+{% endif %}
 
 {% if errors %}
 <main style="padding-bottom:0;">
@@ -160,18 +190,78 @@
       <span class="version-context meta">Detalhes da execução atual</span>
     </div>
     <div class="cards">
-      <div class="card"><div class="value" id="metricTotal">{{ stats.total }}</div><div class="label">Total de Cenários</div></div>
-      <div class="card pass"><div class="value" id="metricPassed">{{ stats.passed }}</div><div class="label">Passou</div></div>
-      <div class="card fail"><div class="value" id="metricFailed">{{ stats.failed }}</div><div class="label">Falhou</div></div>
-      <div class="card skip"><div class="value" id="metricSkipped">{{ stats.skipped }}</div><div class="label">Ignorado</div></div>
-      <div class="card"><div class="value" id="metricPassRate">{{ stats.pass_rate }}%</div><div class="label">Taxa de Sucesso</div></div>
-      <div class="card"><div class="value" id="metricElapsed">{{ "%.1f"|format(stats.elapsed_s) }}s</div><div class="label">Duração Total</div></div>
+      <div class="card">
+        <div class="value" id="metricTotal">{{ stats.total }}</div>
+        <div class="label">Total de Cenários</div>
+      </div>
+      <div class="card pass">
+        <div class="value" id="metricPassed">{{ stats.passed }}</div>
+        <div class="label">Passou</div>
+      </div>
+      <div class="card fail">
+        <div class="value" id="metricFailed">{{ stats.failed }}</div>
+        <div class="label">Falhou</div>
+        {% if delta_stats and delta_stats.has_delta and delta_stats.failed_delta != 0 %}
+          <div class="delta-tag {{ 'delta-neg' if delta_stats.failed_delta > 0 else 'delta-pos' }}">{{ delta_stats.failed_delta_str }} vs ant.</div>
+        {% endif %}
+      </div>
+      <div class="card skip">
+        <div class="value" id="metricSkipped">{{ stats.skipped }}</div>
+        <div class="label">Ignorado</div>
+      </div>
+      <div class="card">
+        <div class="value" id="metricPassRate">{{ stats.pass_rate }}%</div>
+        <div class="label">Taxa de Sucesso</div>
+        {% if delta_stats and delta_stats.has_delta and delta_stats.pass_rate_delta != 0 %}
+          <div class="delta-tag {{ 'delta-pos' if delta_stats.pass_rate_delta > 0 else 'delta-neg' }}">{{ delta_stats.pass_rate_delta_str }} vs ant.</div>
+        {% endif %}
+      </div>
+      <div class="card">
+        <div class="value" id="metricElapsed">{{ "%.1f"|format(stats.elapsed_s) }}s</div>
+        <div class="label">Duração Total</div>
+        {% if delta_stats and delta_stats.has_delta and delta_stats.elapsed_delta != 0 %}
+          <div class="delta-tag {{ 'delta-neg' if delta_stats.elapsed_delta > 0 else 'delta-pos' }}">{{ delta_stats.elapsed_delta_str }} vs ant.</div>
+        {% endif %}
+      </div>
     </div>
 
-    <div class="panel-box">
-      <h2>Tendência Histórica</h2>
-      <canvas id="trendChart"></canvas>
+    <div class="charts-grid">
+      <div class="panel-box" style="margin-bottom:0;">
+        <h2>Tendência Histórica</h2>
+        <canvas id="trendChart"></canvas>
+      </div>
+      <div class="panel-box" style="margin-bottom:0;">
+        <h2>Distribuição de Status</h2>
+        <canvas id="donutChart"></canvas>
+      </div>
     </div>
+
+    <!-- Painel de Testes Flaky / Instáveis (se houver no histórico) -->
+    {% if flaky_tests %}
+    <div class="panel-box" style="border-left: 4px solid var(--flaky);">
+      <h2>⚠️ Testes Instáveis Detectados no Histórico (Flaky Tests)</h2>
+      <p class="meta" style="margin-top:0;">Testes que alternaram entre PASS e FAIL ao longo das execuções salvas:</p>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr><th>Teste</th><th>Suíte</th><th>Oscilações</th><th>Aprovações</th><th>Reprovações</th><th>Estabilidade</th></tr>
+          </thead>
+          <tbody>
+            {% for ft in flaky_tests %}
+            <tr>
+              <td><strong>{{ ft.test_name }}</strong></td>
+              <td>{{ ft.suite_name }}</td>
+              <td><span class="flaky-badge">⚡ {{ ft.flips }} oscilações</span></td>
+              <td><span style="color:var(--pass);">{{ ft.pass_count }}</span></td>
+              <td><span style="color:var(--fail);">{{ ft.fail_count }}</span></td>
+              <td><strong>{{ ft.stability }}%</strong></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
 
     <!-- Top 10 Testes Mais Lentos -->
     <div class="panel-box">
@@ -364,7 +454,17 @@
                 </div>
                 <div class="test-children">
                   {% if test.doc %}<div class="kw-detail"><strong>Cenário:</strong> {{ test.doc }}</div>{% endif %}
-                  {% if test.tags %}<div class="kw-detail"><strong>Tags:</strong> {{ test.tags|join(", ") }}</div>{% endif %}
+                  {% if test.tags %}
+                    <div class="kw-detail"><strong>Tags:</strong>
+                      {% for tag in test.tags %}
+                        {% if issue_url_pattern and ('-' in tag or '#' in tag) %}
+                          <a class="tag-pill tag-link" href="{{ issue_url_pattern.replace('{id}', tag) }}" target="_blank">🔗 {{ tag }}</a>
+                        {% else %}
+                          <span class="tag-pill">{{ tag }}</span>
+                        {% endif %}
+                      {% endfor %}
+                    </div>
+                  {% endif %}
                   {% for kw in test.keywords %}{{ render_keyword(kw) }}{% endfor %}
                 </div>
               </div>
@@ -435,6 +535,18 @@
 <script src="{{ chart_js_content }}"></script>
 {% endif %}
 <script>
+  // ---- Dados globais do relatório ----
+  var REPORT_STATS = {
+    total: {{ stats.total }},
+    passed: {{ stats.passed }},
+    failed: {{ stats.failed }},
+    skipped: {{ stats.skipped }},
+    passRate: {{ stats.pass_rate }},
+    elapsed: {{ stats.elapsed_s }},
+    version: "{{ version }}",
+    generatedAt: "{{ generated_at }}"
+  };
+
   // ---- Tema Escuro / Claro ----
   (function initTheme() {
     var saved = localStorage.getItem('robot_report_theme');
@@ -453,13 +565,64 @@
     }
   })();
 
+  // ---- Resumo para Slack / Teams / Chat ----
+  (function initChatSummary() {
+    var btn = document.getElementById('copyChatSummary');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var failedCount = REPORT_STATS.failed;
+      var statusEmoji = failedCount === 0 ? '✅' : '❌';
+      var text = statusEmoji + ' *Relatório de Testes BDD*
+' +
+        '📅 *Execução:* ' + REPORT_STATS.generatedAt + ' · *Versão:* ' + REPORT_STATS.version + '
+' +
+        '📊 *Cenários:* ' + REPORT_STATS.total + ' total (' + REPORT_STATS.passed + ' passou, ' + REPORT_STATS.failed + ' falhou, ' + REPORT_STATS.skipped + ' ignorado)
+' +
+        '🎯 *Taxa de Sucesso:* ' + REPORT_STATS.passRate + '%
+' +
+        '⏱️ *Duração:* ' + REPORT_STATS.elapsed.toFixed(1) + 's';
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(showToast);
+      } else {
+        var t = document.createElement('textarea');
+        t.value = text;
+        document.body.appendChild(t);
+        t.select();
+        document.execCommand('copy');
+        document.body.removeChild(t);
+        showToast();
+      }
+
+      function showToast() {
+        var orig = btn.textContent;
+        btn.textContent = '✓ Resumo Copiado!';
+        btn.style.borderColor = 'var(--pass)';
+        btn.style.color = 'var(--pass)';
+        setTimeout(function () {
+          btn.textContent = orig;
+          btn.style.borderColor = '';
+          btn.style.color = '';
+        }, 2000);
+      }
+    });
+  })();
+
   // ---- Tabs ----
+  function switchToTab(tabId) {
+    document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+    document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
+    var targetBtn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
+    var targetPanel = document.getElementById('tab-' + tabId);
+    if (targetBtn && targetPanel) {
+      targetBtn.classList.add('active');
+      targetPanel.classList.add('active');
+    }
+  }
+
   document.querySelectorAll('.tab-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
-      document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
-      btn.classList.add('active');
-      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      switchToTab(btn.dataset.tab);
     });
   });
 
@@ -575,10 +738,14 @@
     var step = button.getAttribute('data-step') || '';
     var msg = button.getAttribute('data-msg') || '';
 
-    var text = 'Falha no Teste: ' + test + '\n' +
-      'Suíte: ' + suite + '\n' +
-      (step ? ('Passo com falha: ' + step + '\n') : '') +
-      'Mensagem de Erro:\n' + msg;
+    var text = 'Falha no Teste: ' + test + '
+' +
+      'Suíte: ' + suite + '
+' +
+      (step ? ('Passo com falha: ' + step + '
+') : '') +
+      'Mensagem de Erro:
+' + msg;
 
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(text).then(onCopied);
@@ -636,24 +803,58 @@
     });
   })();
 
-  // ---- Gráfico de tendência histórica ----
+  // ---- Gráfico de tendência e Donut Chart ----
   (function () {
     var history = {{ history|tojson }};
-    var ctx = document.getElementById('trendChart');
-    if (!ctx || typeof Chart === 'undefined' || !history.length) { return; }
-    new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: history.map(function (h) { return (h.version || h.timestamp).replace('T', ' '); }),
-        datasets: [
-          { label: 'Pass', data: history.map(function (h) { return h.passed; }), borderColor: '#1e8e3e', backgroundColor: 'rgba(30,142,62,0.1)', tension: 0.25 },
-          { label: 'Fail', data: history.map(function (h) { return h.failed; }), borderColor: '#d93025', backgroundColor: 'rgba(217,48,37,0.1)', tension: 0.25 },
-          { label: 'Skip', data: history.map(function (h) { return h.skipped || 0; }), borderColor: '#f9ab00', backgroundColor: 'rgba(249,171,0,0.1)', tension: 0.25 },
-          { label: 'Total', data: history.map(function (h) { return h.total; }), borderColor: '#1a73e8', backgroundColor: 'rgba(26,115,232,0.08)', tension: 0.25 }
-        ]
-      },
-      options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
-    });
+    if (typeof Chart === 'undefined') { return; }
+
+    // 1. Tendência Linear
+    var trendCtx = document.getElementById('trendChart');
+    if (trendCtx && history.length) {
+      new Chart(trendCtx, {
+        type: 'line',
+        data: {
+          labels: history.map(function (h) { return (h.version || h.timestamp).replace('T', ' '); }),
+          datasets: [
+            { label: 'Pass', data: history.map(function (h) { return h.passed; }), borderColor: '#1e8e3e', backgroundColor: 'rgba(30,142,62,0.1)', tension: 0.25 },
+            { label: 'Fail', data: history.map(function (h) { return h.failed; }), borderColor: '#d93025', backgroundColor: 'rgba(217,48,37,0.1)', tension: 0.25 },
+            { label: 'Skip', data: history.map(function (h) { return h.skipped || 0; }), borderColor: '#f9ab00', backgroundColor: 'rgba(249,171,0,0.1)', tension: 0.25 },
+            { label: 'Total', data: history.map(function (h) { return h.total; }), borderColor: '#1a73e8', backgroundColor: 'rgba(26,115,232,0.08)', tension: 0.25 }
+          ]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
+      });
+    }
+
+    // 2. Gráfico de Rosca (Donut)
+    var donutCtx = document.getElementById('donutChart');
+    if (donutCtx) {
+      new Chart(donutCtx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Passou', 'Falhou', 'Ignorado'],
+          datasets: [{
+            data: [REPORT_STATS.passed, REPORT_STATS.failed, REPORT_STATS.skipped],
+            backgroundColor: ['#1e8e3e', '#d93025', '#f9ab00'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom' } },
+          onClick: function (evt, elements) {
+            if (elements && elements.length > 0) {
+              var index = elements[0].index;
+              if (index === 1) { // Fail
+                switchToTab('failures');
+              } else {
+                switchToTab('dev');
+              }
+            }
+          }
+        }
+      });
+    }
   })();
 
   // ---- Comparação por versão ----

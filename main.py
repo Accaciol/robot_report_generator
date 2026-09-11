@@ -54,6 +54,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Não converte imagens em Base64, referenciando-as pelo caminho de arquivo",
     )
+    parser.add_argument(
+        "--issue-url",
+        default="",
+        help="Padrão de URL de tickets/tarefas (ex.: 'https://jira.empresa.com/browse/{id}') para gerar links em tags",
+    )
     return parser.parse_args()
 
 
@@ -100,6 +105,9 @@ def main() -> int:
         )
         version = history[-1].version if history else "sem versão"
 
+    flaky_tests = history_manager.detect_flaky_tests(history)
+    delta_stats = history_manager.compute_delta_stats(stats, history)
+
     # 3. Apresentação (Jinja2 + Base64 -> HTML standalone)
     report_data = ReportData(
         title=args.title,
@@ -109,6 +117,10 @@ def main() -> int:
         generated_at=datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
         errors=xml_parser.errors,
         version=version,
+        environment=xml_parser.environment,
+        flaky_tests=flaky_tests,
+        delta_stats=delta_stats,
+        issue_url_pattern=args.issue_url,
     )
     renderer = ReportRenderer(base_dir=artifact_dir, embed_artifacts=not args.no_embed_artifacts)
     out_path = renderer.render(report_data, args.report)

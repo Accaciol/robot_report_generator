@@ -123,6 +123,10 @@ class ReportRenderer:
             version=data.version,
             generated_at=data.generated_at,
             errors=data.errors,
+            environment=data.environment,
+            flaky_tests=data.flaky_tests,
+            delta_stats=data.delta_stats,
+            issue_url_pattern=data.issue_url_pattern,
             chart_js_mode=chart_js_mode,
             chart_js_content=chart_js_content,
         )
