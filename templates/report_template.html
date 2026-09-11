@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }} — {{ generated_at }}</title>
+<style>
+  :root {
+    --pass: #1e8e3e; --fail: #d93025; --skip: #f9ab00; --bg: #f5f6f8;
+    --card-bg: #ffffff; --border: #e0e0e0; --text: #202124; --muted: #5f6368;
+    --accent: #1a73e8; --header-bg: #ffffff; --hover: #eef1f4; --code-bg: #fdecea;
+    --code-text: #c5221f; --tag-bg: #e8f0fe; --tag-text: #1967d2;
+  }
+  [data-theme="dark"] {
+    --pass: #34a853; --fail: #ea4335; --skip: #fbbc04; --bg: #121212;
+    --card-bg: #1e1e1e; --border: #333333; --text: #e8eaed; --muted: #9aa0a6;
+    --accent: #8ab4f8; --header-bg: #1e1e1e; --hover: #2d2d2d; --code-bg: #3c1f1e;
+    --code-text: #f28b82; --tag-bg: #2d3748; --tag-text: #8ab4f8;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background .2s, color .2s; }
+  header { background: var(--header-bg); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header .meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .header-actions { display: flex; align-items: center; gap: 10px; }
+  .theme-toggle-btn { background: var(--card-bg); border: 1px solid var(--border); color: var(--text); padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+  .theme-toggle-btn:hover { background: var(--hover); }
+
+  .tabs { display: flex; gap: 4px; padding: 0 24px; background: var(--header-bg); border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .tab-btn { padding: 12px 18px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--muted); border-bottom: 3px solid transparent; white-space: nowrap; }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+  main { padding: 24px; max-width: 1240px; margin: 0 auto; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+  .card .value { font-size: 28px; font-weight: 700; }
+  .card .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .card.pass .value { color: var(--pass); }
+  .card.fail .value { color: var(--fail); }
+  .card.skip .value { color: var(--skip); }
+
+  .panel-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 24px; }
+  .panel-box h2 { margin-top: 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
+
+  .table-responsive { width: 100%; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; background: var(--bg); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; color: #fff; }
+  .badge.PASS { background: var(--pass); }
+  .badge.FAIL { background: var(--fail); }
+  .badge.SKIP { background: var(--skip); }
+  .badge.NOT_RUN { background: var(--muted); }
+
+  /* Árvore técnica e Filtros */
+  .tree-toolbar { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 16px; }
+  .tree-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .tree-control { padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--card-bg); color: var(--text); cursor: pointer; font-size: 13px; }
+  .tree-control:hover { border-color: var(--accent); color: var(--accent); }
+  .search-input { padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--card-bg); color: var(--text); font-size: 13px; width: 280px; }
+  .search-input:focus { outline: none; border-color: var(--accent); }
+
+  .filter-group { display: inline-flex; gap: 2px; background: var(--bg); padding: 3px; border-radius: 6px; border: 1px solid var(--border); }
+  .filter-btn { border: none; background: none; color: var(--muted); padding: 5px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .filter-btn.active { background: var(--card-bg); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .filter-btn.filter-fail.active { color: var(--fail); }
+  .filter-btn.filter-pass.active { color: var(--pass); }
+  .filter-btn.filter-skip.active { color: var(--skip); }
+
+  .tags-panel { margin-bottom: 16px; }
+  .tags-container { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .tag-pill { display: inline-flex; align-items: center; gap: 4px; background: var(--tag-bg); color: var(--tag-text); padding: 3px 10px; border-radius: 12px; font-size: 11px; cursor: pointer; user-select: none; border: 1px solid transparent; }
+  .tag-pill:hover { border-color: var(--accent); }
+  .tag-pill.active { background: var(--accent); color: #fff; }
+
+  .suite-node { margin-left: 0; margin-bottom: 8px; }
+  .suite-title { cursor: pointer; font-weight: 600; padding: 6px 8px; background: var(--hover); border-radius: 4px; display: flex; align-items: center; justify-content: space-between; }
+  .suite-children, .test-children, .kw-children { margin-left: 18px; padding-left: 10px; border-left: 2px solid var(--border); display: none; }
+  .expanded > .suite-children, .expanded > .test-children, .expanded > .kw-children { display: block; }
+  .test-node { margin: 6px 0; }
+  .test-title { cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; }
+  .test-title:hover, .suite-title:hover, .kw-title:hover { background: var(--hover); }
+  .kw-node { margin: 3px 0; font-size: 13px; }
+  .kw-title { cursor: pointer; padding: 2px 6px; border-radius: 3px; }
+  .kw-detail { margin-left: 18px; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .gherkin { color: var(--accent); font-weight: 600; }
+  .args-list { font-family: monospace; font-size: 12px; color: var(--muted); }
+  .artifact-img { max-width: 320px; border: 1px solid var(--border); border-radius: 4px; margin-top: 6px; display: block; }
+  .video-link { display: inline-block; margin-top: 6px; font-size: 12px; color: var(--accent); text-decoration: none; }
+  .video-link:hover { text-decoration: underline; }
+  .artifact-missing { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 10px; }
+  .gallery-item { border: 1px solid var(--border); border-radius: 6px; padding: 10px; background: var(--bg); }
+  .gallery-item img, .gallery-item video { width: 100%; max-height: 220px; object-fit: contain; background: #000; border-radius: 4px; }
+  .zoomable-image { cursor: zoom-in; }
+  .lightbox { position: fixed; inset: 0; z-index: 999; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, .85); }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: min(96vw, 1600px); max-height: 90vh; object-fit: contain; border-radius: 4px; box-shadow: 0 8px 40px rgba(0, 0, 0, .6); }
+  .lightbox-close { position: absolute; top: 16px; right: 20px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: #fff; color: #202124; font-size: 24px; cursor: pointer; }
+  .version-toolbar, .version-filter { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .version-toolbar select, .version-filter select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--card-bg); color: var(--text); font-size: 13px; }
+  .status-added { color: var(--pass); font-weight: 700; }
+  .status-removed, .status-regressed { color: var(--fail); font-weight: 700; }
+  .status-kept { color: var(--muted); }
+  .toggle-icon::before { content: "▶ "; display: inline-block; transition: transform .15s; }
+  .expanded > .toggle-icon::before, .expanded.suite-title .toggle-icon::before { content: "▼ "; }
+
+  /* Falhas */
+  .failure-card { border: 1px solid var(--border); border-left: 4px solid var(--fail); background: var(--card-bg); border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
+  .failure-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
+  .failure-card h3 { margin: 0; font-size: 15px; }
+  .failure-step { color: var(--accent); font-size: 13px; margin: 4px 0 8px; }
+  .failure-message { background: var(--code-bg); color: var(--code-text); padding: 10px 12px; border-radius: 4px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  .copy-btn { padding: 5px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--card-bg); color: var(--text); cursor: pointer; font-size: 12px; white-space: nowrap; }
+  .copy-btn:hover { background: var(--hover); border-color: var(--accent); }
+
+  .warn-box { background: #fff8e1; border: 1px solid #f9ab00; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; color: #7f5100; }
+  [data-theme="dark"] .warn-box { background: #332700; color: #ffeb87; }
+  canvas#trendChart { max-height: 320px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>{{ title }}</h1>
+    <div class="meta">Gerado em {{ generated_at }} · Versão: {{ version }} · Fonte: output.xml (Robot Framework)</div>
+  </div>
+  <div class="header-actions">
+    <button id="themeToggle" class="theme-toggle-btn" type="button" aria-label="Alternar tema">🌙 Modo Escuro</button>
+  </div>
+</header>
+
+{% if errors %}
+<main style="padding-bottom:0;">
+  <div class="warn-box">
+    <strong>Avisos de parsing (não fatais):</strong>
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+</main>
+{% endif %}
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="po">Visão Executiva</button>
+  <button class="tab-btn" data-tab="dev">Visão Técnica</button>
+  <button class="tab-btn" data-tab="versions">Versões</button>
+  <button class="tab-btn" data-tab="failures">Resumo de Falhas (<span id="failuresTabCount">{{ stats.failed }}</span>)</button>
+</nav>
+
+<main>
+
+  <!-- ===================== ABA 1: VISÃO EXECUTIVA (PO) ===================== -->
+  <section id="tab-po" class="tab-panel active">
+    <div class="version-filter">
+      <label for="versionSelectPo">Versão:</label>
+      <select id="versionSelectPo" class="version-select"></select>
+      <span class="version-context meta">Detalhes da execução atual</span>
+    </div>
+    <div class="cards">
+      <div class="card"><div class="value" id="metricTotal">{{ stats.total }}</div><div class="label">Total de Cenários</div></div>
+      <div class="card pass"><div class="value" id="metricPassed">{{ stats.passed }}</div><div class="label">Passou</div></div>
+      <div class="card fail"><div class="value" id="metricFailed">{{ stats.failed }}</div><div class="label">Falhou</div></div>
+      <div class="card skip"><div class="value" id="metricSkipped">{{ stats.skipped }}</div><div class="label">Ignorado</div></div>
+      <div class="card"><div class="value" id="metricPassRate">{{ stats.pass_rate }}%</div><div class="label">Taxa de Sucesso</div></div>
+      <div class="card"><div class="value" id="metricElapsed">{{ "%.1f"|format(stats.elapsed_s) }}s</div><div class="label">Duração Total</div></div>
+    </div>
+
+    <div class="panel-box">
+      <h2>Tendência Histórica</h2>
+      <canvas id="trendChart"></canvas>
+    </div>
+
+    <!-- Top 10 Testes Mais Lentos -->
+    <div class="panel-box">
+      <h2>⏱️ Testes Mais Lentos (Top 10)</h2>
+      {% set all_tests_flat = [] %}
+      {% for suite in suites recursive %}
+        {% for t in suite.tests %}{{ all_tests_flat.append(t) or "" }}{% endfor %}
+        {{ loop(suite.suites) }}
+      {% endfor %}
+      {% set slowest_tests = all_tests_flat|sort(attribute='elapsed_s', reverse=True) %}
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr><th>Teste</th><th>Suíte</th><th>Status</th><th>Duração</th></tr>
+          </thead>
+          <tbody>
+            {% for t in slowest_tests[:10] %}
+            <tr>
+              <td><strong>{{ t.name }}</strong></td>
+              <td>{{ t.suite_name }}</td>
+              <td><span class="badge {{ t.status.value|replace(' ', '_') }}">{{ t.status.value }}</span></td>
+              <td>{{ "%.2f"|format(t.elapsed_s) }}s</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel-box">
+      <h2>Features Executadas</h2>
+      <div class="table-responsive">
+        <table>
+          <thead><tr><th>Feature</th><th>Cenários</th><th>Pass</th><th>Fail</th><th>Skip</th></tr></thead>
+          <tbody id="featuresTableBody">
+            {% for suite in suites recursive %}
+              {% if suite.tests %}
+              <tr>
+                <td>{{ suite.name }}</td>
+                <td>{{ suite.all_tests|length }}</td>
+                <td>{{ suite.status_summary.PASS }}</td>
+                <td>{{ suite.status_summary.FAIL }}</td>
+                <td>{{ suite.status_summary.SKIP }}</td>
+              </tr>
+              {% endif %}
+              {{ loop(suite.suites) }}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== ABA 2: VERSÕES ===================== -->
+  <section id="tab-versions" class="tab-panel">
+    <div class="panel-box">
+      <h2>Testes por versão</h2>
+      <div class="version-toolbar">
+        <label for="versionSelect">Execução:</label>
+        <select id="versionSelect" class="version-select"></select>
+        <span id="versionSummary" class="meta"></span>
+      </div>
+      <div class="table-responsive">
+        <table>
+          <thead><tr><th>Teste</th><th>Suíte</th><th>Status</th><th>Comparação</th><th>Duração</th></tr></thead>
+          <tbody id="versionTests"></tbody>
+        </table>
+      </div>
+      <p id="versionEmpty" class="meta" style="display:none;">Nenhum snapshot de teste foi salvo nessa execução.</p>
+    </div>
+  </section>
+
+  <!-- ===================== ABA 3: VISÃO TÉCNICA (DEV) ===================== -->
+  <section id="tab-dev" class="tab-panel">
+    <div class="panel-box">
+      <div class="version-filter">
+        <label for="versionSelectDev">Versão:</label>
+        <select id="versionSelectDev" class="version-select"></select>
+        <span class="version-context meta">Detalhes da execução atual</span>
+      </div>
+
+      <!-- Barra de Ferramentas com Busca e Filtros -->
+      <div class="tree-toolbar">
+        <input type="search" id="treeSearch" placeholder="🔍 Filtrar testes, palavras-chave ou tags..." class="search-input" aria-label="Pesquisar testes">
+        <div class="filter-group" aria-label="Filtro de status">
+          <button type="button" class="filter-btn active" data-filter="ALL">Todos (<span id="countAll">{{ stats.total }}</span>)</button>
+          <button type="button" class="filter-btn filter-fail" data-filter="FAIL">Falhas (<span id="countFail">{{ stats.failed }}</span>)</button>
+          <button type="button" class="filter-btn filter-pass" data-filter="PASS">Passou (<span id="countPass">{{ stats.passed }}</span>)</button>
+          <button type="button" class="filter-btn filter-skip" data-filter="SKIP">Ignorado (<span id="countSkip">{{ stats.skipped }}</span>)</button>
+        </div>
+        <div class="tree-controls">
+          <button class="tree-control" type="button" id="expandAll">Expandir tudo</button>
+          <button class="tree-control" type="button" id="collapseAll">Recolher tudo</button>
+        </div>
+      </div>
+
+      <!-- Painel de Tags -->
+      {% set all_tags_dict = {} %}
+      {% for t in all_tests_flat %}
+        {% for tag in t.tags %}
+          {% if tag in all_tags_dict %}
+            {% set _ = all_tags_dict.update({tag: all_tags_dict[tag] + 1}) %}
+          {% else %}
+            {% set _ = all_tags_dict.update({tag: 1}) %}
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+      {% if all_tags_dict %}
+      <div class="tags-panel">
+        <span class="meta">🏷️ Filtrar por Tag:</span>
+        <div class="tags-container" id="tagsFilterContainer">
+          {% for tag, count in all_tags_dict.items()|sort(attribute='1', reverse=True) %}
+          <span class="tag-pill" data-tag="{{ tag }}">{{ tag }} <strong>({{ count }})</strong></span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div id="technicalVersionNotice" class="warn-box" style="display:none;">A árvore técnica detalhada pertence à execução atual. Esta versão histórica possui apenas métricas e snapshots.</div>
+      <h2>Árvore de Execução</h2>
+
+      {% macro render_keyword(kw) %}
+        <div class="kw-node">
+          <div class="kw-title" onclick="toggleNode(this)">
+            <span class="toggle-icon"></span>
+            {% if kw.gherkin_step %}<span class="gherkin">{{ kw.gherkin_step }}</span>{% else %}{{ kw.name }}{% endif %}
+            <span class="badge {{ kw.status.value|replace(' ', '_') }}">{{ kw.status.value }}</span>
+            <span class="meta" style="font-size:11px; margin-left:6px;">{{ "%.3f"|format(kw.elapsed_s) }}s</span>
+          </div>
+          <div class="kw-children">
+            {% if kw.doc %}<div class="kw-detail">Doc: {{ kw.doc }}</div>{% endif %}
+            {% if kw.args %}<div class="kw-detail args-list">Args: {{ kw.args|join(", ") }}</div>{% endif %}
+            {% for artifact in kw.artifacts %}
+              {% if artifact.kind == "image" and artifact.embedded_data_uri %}
+                <img class="artifact-img lazy-artifact zoomable-image" data-src="{{ artifact.embedded_data_uri }}" alt="Screenshot da execução">
+              {% elif artifact.kind == "video" and artifact.embedded_data_uri %}
+                <video class="artifact-img lazy-artifact" controls data-src="{{ artifact.embedded_data_uri }}"></video>
+              {% elif artifact.missing %}
+                <div class="artifact-missing">Evidência não encontrada: {{ artifact.original_path }}</div>
+              {% elif artifact.kind == "video" %}
+                <a class="video-link" href="{{ artifact.original_path }}" target="_blank">🎬 Ver vídeo da execução</a>
+              {% endif %}
+            {% endfor %}
+            {% for child in kw.children %}{{ render_keyword(child) }}{% endfor %}
+          </div>
+        </div>
+      {% endmacro %}
+
+      {% macro render_test_artifacts(keywords) %}
+        {% for kw in keywords %}
+          {% for artifact in kw.artifacts %}
+            {% if artifact.embedded_data_uri %}
+              <div class="gallery-item">
+                <strong>{{ kw.name }}</strong>
+                {% if artifact.kind == "image" %}<img class="zoomable-image" src="{{ artifact.embedded_data_uri }}" alt="Screenshot de {{ kw.name }}">
+                {% else %}<video controls src="{{ artifact.embedded_data_uri }}"></video>{% endif %}
+              </div>
+            {% elif artifact.missing %}
+              <div class="gallery-item"><strong>{{ kw.name }}</strong><div class="artifact-missing">Evidência ausente: {{ artifact.original_path }}</div></div>
+            {% endif %}
+          {% endfor %}
+          {{ render_test_artifacts(kw.children) }}
+        {% endfor %}
+      {% endmacro %}
+
+      {% macro render_suite(suite) %}
+        <div class="suite-node">
+          <div class="suite-title" onclick="toggleNode(this)">
+            <div>
+              <span class="toggle-icon"></span>{{ suite.name }}
+              <span style="color:var(--muted); font-weight:400; font-size:12px;">({{ suite.all_tests|length }} cenários)</span>
+            </div>
+            <div>
+              <span class="badge PASS">{{ suite.status_summary.PASS }}</span>
+              <span class="badge FAIL">{{ suite.status_summary.FAIL }}</span>
+              {% if suite.status_summary.SKIP %}<span class="badge SKIP">{{ suite.status_summary.SKIP }}</span>{% endif %}
+            </div>
+          </div>
+          <div class="suite-children">
+            {% for test in suite.tests %}
+              <div class="test-node" data-status="{{ test.status.value }}" data-tags="{{ test.tags|join(' ')|lower }}" data-name="{{ test.name|lower }} {{ test.doc|lower }}">
+                <div class="test-title" onclick="toggleNode(this)">
+                  <div>
+                    <span class="toggle-icon"></span>{{ test.name }}
+                  </div>
+                  <div>
+                    <span class="meta" style="font-size:12px; margin-right:6px;">{{ "%.2f"|format(test.elapsed_s) }}s</span>
+                    <span class="badge {{ test.status.value|replace(' ', '_') }}">{{ test.status.value }}</span>
+                  </div>
+                </div>
+                <div class="test-children">
+                  {% if test.doc %}<div class="kw-detail"><strong>Cenário:</strong> {{ test.doc }}</div>{% endif %}
+                  {% if test.tags %}<div class="kw-detail"><strong>Tags:</strong> {{ test.tags|join(", ") }}</div>{% endif %}
+                  {% for kw in test.keywords %}{{ render_keyword(kw) }}{% endfor %}
+                </div>
+              </div>
+            {% endfor %}
+            {% for child_suite in suite.suites %}{{ render_suite(child_suite) }}{% endfor %}
+          </div>
+        </div>
+      {% endmacro %}
+
+      <div id="suitesContainer">
+        {% for suite in suites %}{{ render_suite(suite) }}{% endfor %}
+      </div>
+      <p id="noTestsFoundMsg" class="meta" style="display:none; text-align:center; padding: 24px;">Nenhum teste encontrado com os filtros aplicados.</p>
+    </div>
+  </section>
+
+  <!-- ===================== ABA 4: RESUMO DE FALHAS ===================== -->
+  <section id="tab-failures" class="tab-panel">
+    <div class="panel-box">
+      <div class="version-filter">
+        <label for="versionSelectFailures">Versão:</label>
+        <select id="versionSelectFailures" class="version-select"></select>
+        <span class="version-context meta">Detalhes da execução atual</span>
+      </div>
+      <h2>Testes com Falha</h2>
+      <div id="historicalFailures" style="display:none;"></div>
+      <div id="currentFailures">
+      {% set failed_tests = [] %}
+      {% for suite in suites recursive %}
+        {% for t in suite.tests if t.is_failed %}{{ failed_tests.append(t) or "" }}{% endfor %}
+        {{ loop(suite.suites) }}
+      {% endfor %}
+
+      {% if not failed_tests %}
+        <p>Nenhuma falha nesta execução. ✅</p>
+      {% endif %}
+
+      {% for test in failed_tests %}
+        <div class="failure-card">
+          <div class="failure-header">
+            <div>
+              <h3>{{ test.name }}</h3>
+              <div class="meta">Suíte: {{ test.suite_name }} · Duração: {{ "%.2f"|format(test.elapsed_s) }}s</div>
+            </div>
+            <button class="copy-btn" type="button" onclick="copyFailureError(this)" data-test="{{ test.name }}" data-suite="{{ test.suite_name }}" data-step="{{ test.failed_step or '' }}" data-msg="{{ test.message or '' }}">📋 Copiar Erro</button>
+          </div>
+          {% if test.failed_step %}<div class="failure-step">Passo com falha: <span class="gherkin">{{ test.failed_step }}</span></div>{% endif %}
+          <div class="failure-message">{{ test.message or "Sem mensagem de erro registrada." }}</div>
+          <div class="gallery">{{ render_test_artifacts(test.keywords) }}</div>
+        </div>
+      {% endfor %}
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div class="lightbox" id="imageLightbox" role="dialog" aria-modal="true" aria-label="Screenshot ampliado" aria-hidden="true">
+  <button class="lightbox-close" type="button" aria-label="Fechar imagem ampliada">&times;</button>
+  <img id="lightboxImage" alt="Screenshot ampliado">
+</div>
+
+{% if chart_js_mode == "inline" %}
+<script>
+{{ chart_js_content|safe }}
+</script>
+{% else %}
+<script src="{{ chart_js_content }}"></script>
+{% endif %}
+<script>
+  // ---- Tema Escuro / Claro ----
+  (function initTheme() {
+    var saved = localStorage.getItem('robot_report_theme');
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var current = saved || (prefersDark ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', current);
+    var btn = document.getElementById('themeToggle');
+    if (btn) {
+      btn.textContent = current === 'dark' ? '☀️ Modo Claro' : '🌙 Modo Escuro';
+      btn.addEventListener('click', function () {
+        var active = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', active);
+        localStorage.setItem('robot_report_theme', active);
+        btn.textContent = active === 'dark' ? '☀️ Modo Claro' : '🌙 Modo Escuro';
+      });
+    }
+  })();
+
+  // ---- Tabs ----
+  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+      document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // ---- Árvore expansível ----
+  function toggleNode(el) {
+    var node = el.parentElement;
+    var expanded = node.classList.toggle('expanded');
+    if (expanded) { loadNodeArtifacts(node); }
+  }
+
+  function loadNodeArtifacts(node) {
+    var content = node.querySelector(':scope > .kw-children');
+    if (!content) { return; }
+    Array.prototype.filter.call(content.children, function (child) {
+      return child.classList.contains('lazy-artifact') && child.hasAttribute('data-src');
+    }).forEach(function (media) {
+      media.src = media.dataset.src;
+      media.removeAttribute('data-src');
+    });
+  }
+
+  // ---- Expansão global da árvore ----
+  function setTreeExpanded(expanded) {
+    document.querySelectorAll('#tab-dev .suite-node, #tab-dev .test-node, #tab-dev .kw-node').forEach(function (node) {
+      node.classList.toggle('expanded', expanded);
+      if (expanded && node.classList.contains('kw-node')) { loadNodeArtifacts(node); }
+    });
+  }
+
+  document.getElementById('expandAll').addEventListener('click', function () { setTreeExpanded(true); });
+  document.getElementById('collapseAll').addEventListener('click', function () { setTreeExpanded(false); });
+
+  // ---- Filtros e Busca da Árvore Técnica ----
+  (function initTreeFilters() {
+    var searchInput = document.getElementById('treeSearch');
+    var filterButtons = document.querySelectorAll('.filter-btn');
+    var tagPills = document.querySelectorAll('.tag-pill');
+    var activeFilter = 'ALL';
+    var activeTag = '';
+    var searchQuery = '';
+
+    function applyFilters() {
+      var testNodes = document.querySelectorAll('#tab-dev .test-node');
+      var visibleCount = 0;
+
+      testNodes.forEach(function (testNode) {
+        var status = testNode.getAttribute('data-status') || '';
+        var tags = testNode.getAttribute('data-tags') || '';
+        var name = testNode.getAttribute('data-name') || '';
+
+        var matchStatus = (activeFilter === 'ALL') || (status === activeFilter);
+        var matchTag = (!activeTag) || tags.indexOf(activeTag.toLowerCase()) !== -1;
+        var matchSearch = (!searchQuery) || (name.indexOf(searchQuery) !== -1) || (tags.indexOf(searchQuery) !== -1);
+
+        if (matchStatus && matchTag && matchSearch) {
+          testNode.style.display = '';
+          visibleCount++;
+        } else {
+          testNode.style.display = 'none';
+        }
+      });
+
+      // Atualiza visibilidade dos nós de suíte
+      document.querySelectorAll('#tab-dev .suite-node').forEach(function (suiteNode) {
+        var hasVisibleTest = suiteNode.querySelector('.test-node:not([style*="display: none"])');
+        suiteNode.style.display = hasVisibleTest ? '' : 'none';
+        if (hasVisibleTest && (searchQuery || activeTag || activeFilter !== 'ALL')) {
+          suiteNode.classList.add('expanded');
+        }
+      });
+
+      var noResults = document.getElementById('noTestsFoundMsg');
+      if (noResults) {
+        noResults.style.display = visibleCount === 0 ? 'block' : 'none';
+      }
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        searchQuery = searchInput.value.trim().toLowerCase();
+        applyFilters();
+      });
+    }
+
+    filterButtons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        filterButtons.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        activeFilter = btn.getAttribute('data-filter') || 'ALL';
+        applyFilters();
+      });
+    });
+
+    tagPills.forEach(function (pill) {
+      pill.addEventListener('click', function () {
+        if (pill.classList.contains('active')) {
+          pill.classList.remove('active');
+          activeTag = '';
+        } else {
+          tagPills.forEach(function (p) { p.classList.remove('active'); });
+          pill.classList.add('active');
+          activeTag = pill.getAttribute('data-tag') || '';
+        }
+        applyFilters();
+      });
+    });
+  })();
+
+  // ---- Copiar Erro para Clipboard ----
+  function copyFailureError(button) {
+    var test = button.getAttribute('data-test') || '';
+    var suite = button.getAttribute('data-suite') || '';
+    var step = button.getAttribute('data-step') || '';
+    var msg = button.getAttribute('data-msg') || '';
+
+    var text = 'Falha no Teste: ' + test + '\n' +
+      'Suíte: ' + suite + '\n' +
+      (step ? ('Passo com falha: ' + step + '\n') : '') +
+      'Mensagem de Erro:\n' + msg;
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(onCopied);
+    } else {
+      var textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      onCopied();
+    }
+
+    function onCopied() {
+      var original = button.textContent;
+      button.textContent = '✓ Copiado!';
+      button.style.borderColor = 'var(--pass)';
+      button.style.color = 'var(--pass)';
+      setTimeout(function () {
+        button.textContent = original;
+        button.style.borderColor = '';
+        button.style.color = '';
+      }, 2000);
+    }
+  }
+
+  // ---- Screenshot ampliado ----
+  (function () {
+    var lightbox = document.getElementById('imageLightbox');
+    var lightboxImage = document.getElementById('lightboxImage');
+    var closeButton = lightbox.querySelector('.lightbox-close');
+    var lastFocused = null;
+    function closeLightbox() {
+      lightbox.classList.remove('open');
+      lightbox.setAttribute('aria-hidden', 'true');
+      lightboxImage.removeAttribute('src');
+      if (lastFocused) { lastFocused.focus(); }
+    }
+    document.addEventListener('click', function (event) {
+      var image = event.target.closest('.zoomable-image');
+      if (image && image.src) {
+        lastFocused = image;
+        lightboxImage.src = image.src;
+        lightbox.classList.add('open');
+        lightbox.setAttribute('aria-hidden', 'false');
+        closeButton.focus();
+      }
+    });
+    closeButton.addEventListener('click', closeLightbox);
+    lightbox.addEventListener('click', function (event) {
+      if (event.target === lightbox) { closeLightbox(); }
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && lightbox.classList.contains('open')) { closeLightbox(); }
+    });
+  })();
+
+  // ---- Gráfico de tendência histórica ----
+  (function () {
+    var history = {{ history|tojson }};
+    var ctx = document.getElementById('trendChart');
+    if (!ctx || typeof Chart === 'undefined' || !history.length) { return; }
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: history.map(function (h) { return (h.version || h.timestamp).replace('T', ' '); }),
+        datasets: [
+          { label: 'Pass', data: history.map(function (h) { return h.passed; }), borderColor: '#1e8e3e', backgroundColor: 'rgba(30,142,62,0.1)', tension: 0.25 },
+          { label: 'Fail', data: history.map(function (h) { return h.failed; }), borderColor: '#d93025', backgroundColor: 'rgba(217,48,37,0.1)', tension: 0.25 },
+          { label: 'Skip', data: history.map(function (h) { return h.skipped || 0; }), borderColor: '#f9ab00', backgroundColor: 'rgba(249,171,0,0.1)', tension: 0.25 },
+          { label: 'Total', data: history.map(function (h) { return h.total; }), borderColor: '#1a73e8', backgroundColor: 'rgba(26,115,232,0.08)', tension: 0.25 }
+        ]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
+    });
+  })();
+
+  // ---- Comparação por versão ----
+  (function () {
+    var history = {{ history|tojson }};
+    var selects = Array.prototype.slice.call(document.querySelectorAll('.version-select'));
+    var select = document.getElementById('versionSelect');
+    var body = document.getElementById('versionTests');
+    var summary = document.getElementById('versionSummary');
+    var empty = document.getElementById('versionEmpty');
+    var currentVersion = history.length ? history.length - 1 : 0;
+    if (!selects.length || !history.length) { return; }
+    selects.forEach(function (versionSelect) {
+      history.forEach(function (entry, index) {
+        var option = document.createElement('option');
+        option.value = index;
+        option.textContent = entry.version || entry.timestamp;
+        versionSelect.appendChild(option);
+      });
+      versionSelect.value = String(currentVersion);
+      versionSelect.addEventListener('change', function () {
+        currentVersion = Number(versionSelect.value);
+        selects.forEach(function (other) { other.value = String(currentVersion); });
+        updateGlobalView();
+        document.querySelectorAll('.version-context').forEach(function (context) {
+          context.textContent = currentVersion === history.length - 1
+            ? 'Detalhes da execução atual · filtro: ' + (history[currentVersion].version || history[currentVersion].timestamp)
+            : 'Snapshot histórico · filtro: ' + (history[currentVersion].version || history[currentVersion].timestamp);
+        });
+        renderVersion();
+      });
+    });
+
+    function updateGlobalView() {
+      var selected = history[currentVersion];
+      var isCurrent = currentVersion === history.length - 1;
+      document.getElementById('metricTotal').textContent = selected.total || 0;
+      document.getElementById('metricPassed').textContent = selected.passed || 0;
+      document.getElementById('metricFailed').textContent = selected.failed || 0;
+      document.getElementById('metricSkipped').textContent = selected.skipped || 0;
+      document.getElementById('metricPassRate').textContent = (selected.pass_rate || 0) + '%';
+      document.getElementById('metricElapsed').textContent = Number(selected.elapsed_s || 0).toFixed(1) + 's';
+      document.getElementById('failuresTabCount').textContent = selected.failed || 0;
+      
+      // Apenas renderiza dinamicamente a tabela de features se não for a versão atual
+      if (!isCurrent) {
+        renderFeatures(selected.tests || []);
+      }
+      
+      document.getElementById('technicalVersionNotice').style.display = isCurrent ? 'none' : 'block';
+      var currentFailures = document.getElementById('currentFailures');
+      var historicalFailures = document.getElementById('historicalFailures');
+      currentFailures.style.display = isCurrent ? 'block' : 'none';
+      historicalFailures.style.display = isCurrent ? 'none' : 'block';
+      historicalFailures.innerHTML = '';
+      if (!isCurrent) {
+        var failedTests = (selected.tests || []).filter(function (test) { return test.status === 'FAIL'; });
+        if (!failedTests.length) {
+          historicalFailures.textContent = 'Nenhuma falha registrada nesta versão.';
+        } else {
+          failedTests.forEach(function (test) {
+            var card = document.createElement('div');
+            card.className = 'failure-card';
+            card.innerHTML = '<h3>' + escapeHtml(test.test_name) + '</h3><div class="failure-step">Suíte: ' + escapeHtml(test.suite_name) + '</div><div class="failure-message">Detalhes da mensagem não foram persistidos para esta versão histórica.</div>';
+            historicalFailures.appendChild(card);
+          });
+        }
+      }
+    }
+
+    function renderFeatures(tests) {
+      var body = document.getElementById('featuresTableBody');
+      var features = {};
+      tests.forEach(function (test) {
+        var suiteName = test.suite_name || 'Sem suíte';
+        if (!features[suiteName]) { features[suiteName] = { total: 0, pass: 0, fail: 0, skip: 0 }; }
+        features[suiteName].total += 1;
+        if (test.status === 'PASS') { features[suiteName].pass += 1; }
+        if (test.status === 'FAIL') { features[suiteName].fail += 1; }
+        if (test.status === 'SKIP') { features[suiteName].skip += 1; }
+      });
+      body.innerHTML = '';
+      Object.keys(features).forEach(function (suiteName) {
+        var feature = features[suiteName];
+        var row = document.createElement('tr');
+        row.innerHTML = '<td>' + escapeHtml(suiteName) + '</td><td>' + feature.total + '</td><td>' + feature.pass + '</td><td>' + feature.fail + '</td><td>' + feature.skip + '</td>';
+        body.appendChild(row);
+      });
+    }
+
+    function renderVersion() {
+      var index = currentVersion;
+      var current = history[index];
+      var previous = index > 0 ? history[index - 1] : null;
+      var previousTests = {};
+      var currentTests = {};
+      (previous && previous.tests || []).forEach(function (test) { previousTests[test.stable_id] = test; });
+      body.innerHTML = '';
+      var tests = current.tests || [];
+      empty.style.display = tests.length ? 'none' : 'block';
+      summary.textContent = (current.total || 0) + ' cenários · ' + (current.pass_rate || 0) + '% de sucesso';
+      tests.forEach(function (test) {
+        currentTests[test.stable_id] = true;
+        var before = previousTests[test.stable_id];
+        var comparison = before ? (before.status === test.status ? 'Mantido' : 'Status alterado') : 'Adicionado';
+        var comparisonClass = comparison === 'Adicionado' ? 'status-added' : (comparison === 'Status alterado' && test.status === 'FAIL' ? 'status-regressed' : 'status-kept');
+        var row = document.createElement('tr');
+        row.innerHTML = '<td>' + escapeHtml(test.test_name) + '</td><td>' + escapeHtml(test.suite_name) + '</td><td><span class="badge ' + test.status.replace(' ', '_') + '">' + test.status + '</span></td><td class="' + comparisonClass + '">' + comparison + '</td><td>' + Number(test.elapsed_s || 0).toFixed(2) + 's</td>';
+        body.appendChild(row);
+      });
+      (previous && previous.tests || []).forEach(function (test) {
+        if (currentTests[test.stable_id]) { return; }
+        var row = document.createElement('tr');
+        row.innerHTML = '<td>' + escapeHtml(test.test_name) + '</td><td>' + escapeHtml(test.suite_name) + '</td><td><span class="badge">-</span></td><td class="status-removed">Removido</td><td>-</td>';
+        body.appendChild(row);
+      });
+    }
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, function (char) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]; });
+    }
+
+    updateGlobalView();
+    renderVersion();
+  })();
+</script>
+</body>
+</html>

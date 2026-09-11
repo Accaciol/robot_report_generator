@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot generator="Robot 7.4.2 (Python 3.12.3 on linux)" generated="2026-09-10T11:32:29.687863" rpa="false" schemaversion="5">
+<suite id="s1" name="Login" source="/home/claude/robot_report_generator/example/login.robot">
+<test id="s1-t1" name="Login com credenciais válidas" line="5">
+<kw name="Given o usuário está na página de login">
+<kw name="Log" owner="BuiltIn">
+<msg time="2026-09-10T11:32:29.721460" level="INFO">Navegando até /login</msg>
+<arg>Navegando até /login</arg>
+<doc>Logs the given message with the given level.</doc>
+<status status="PASS" start="2026-09-10T11:32:29.721185" elapsed="0.000372"/>
+</kw>
+<status status="PASS" start="2026-09-10T11:32:29.720650" elapsed="0.001000"/>
+</kw>
+<kw name="When o usuário informa credenciais válidas">
+<kw name="Log" owner="BuiltIn">
+<msg time="2026-09-10T11:32:29.722346" level="INFO">Preenchendo usuário e senha válidos</msg>
+<arg>Preenchendo usuário e senha válidos</arg>
+<doc>Logs the given message with the given level.</doc>
+<status status="PASS" start="2026-09-10T11:32:29.722108" elapsed="0.000293"/>
+</kw>
+<status status="PASS" start="2026-09-10T11:32:29.721816" elapsed="0.000648"/>
+</kw>
+<kw name="Then o usuário vê o dashboard">
+<kw name="Log" owner="BuiltIn">
+<msg time="2026-09-10T11:32:29.722979" level="INFO">Validando elemento do dashboard</msg>
+<arg>Validando elemento do dashboard</arg>
+<doc>Logs the given message with the given level.</doc>
+<status status="PASS" start="2026-09-10T11:32:29.722787" elapsed="0.000225"/>
+</kw>
+<status status="PASS" start="2026-09-10T11:32:29.722604" elapsed="0.000448"/>
+</kw>
+<doc>Scenario: usuário acessa o sistema com sucesso</doc>
+<tag>smoke</tag>
+<status status="PASS" start="2026-09-10T11:32:29.719824" elapsed="0.003315"/>
+</test>
+<test id="s1-t2" name="Login com credenciais inválidas" line="12">
+<kw name="Given o usuário está na página de login">
+<kw name="Log" owner="BuiltIn">
+<msg time="2026-09-10T11:32:29.724583" level="INFO">Navegando até /login</msg>
+<arg>Navegando até /login</arg>
+<doc>Logs the given message with the given level.</doc>
+<status status="PASS" start="2026-09-10T11:32:29.724339" elapsed="0.000293"/>
+</kw>
+<status status="PASS" start="2026-09-10T11:32:29.724144" elapsed="0.000547"/>
+</kw>
+<kw name="When o usuário informa uma senha incorreta">
+<kw name="Log" owner="BuiltIn">
+<msg time="2026-09-10T11:32:29.725170" level="INFO">Preenchendo senha incorreta</msg>
+<arg>Preenchendo senha incorreta</arg>
+<doc>Logs the given message with the given level.</doc>
+<status status="PASS" start="2026-09-10T11:32:29.724992" elapsed="0.000224"/>
+</kw>
+<status status="PASS" start="2026-09-10T11:32:29.724811" elapsed="0.000447"/>
+</kw>
+<kw name="Then o sistema deve rejeitar o login">
+<kw name="Fail" owner="BuiltIn">
+<msg time="2026-09-10T11:32:29.725765" level="FAIL">Elemento 'mensagem-erro' não encontrado na página (timeout 5s)</msg>
+<arg>Elemento 'mensagem-erro' não encontrado na página (timeout 5s)</arg>
+<doc>Fails the test with the given message and optionally alters its tags.</doc>
+<status status="FAIL" start="2026-09-10T11:32:29.725497" elapsed="0.000379">Elemento 'mensagem-erro' não encontrado na página (timeout 5s)</status>
+</kw>
+<status status="FAIL" start="2026-09-10T11:32:29.725359" elapsed="0.000834">Elemento 'mensagem-erro' não encontrado na página (timeout 5s)</status>
+</kw>
+<doc>Scenario: usuário tenta logar com senha errada</doc>
+<tag>regression</tag>
+<status status="FAIL" start="2026-09-10T11:32:29.723653" elapsed="0.002659">Elemento 'mensagem-erro' não encontrado na página (timeout 5s)</status>
+</test>
+<doc>Feature: Login do usuário</doc>
+<status status="FAIL" start="2026-09-10T11:32:29.688726" elapsed="0.038300"/>
+</suite>
+<statistics>
+<total>
+<stat pass="1" fail="1" skip="0">All Tests</stat>
+</total>
+<tag>
+<stat pass="0" fail="1" skip="0">regression</stat>
+<stat pass="1" fail="0" skip="0">smoke</stat>
+</tag>
+<suite>
+<stat name="Login" id="s1" pass="1" fail="1" skip="0">Login</stat>
+</suite>
+</statistics>
+<errors>
+</errors>
+</robot>

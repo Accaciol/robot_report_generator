@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "robot-report-generator"
+version = "1.0.0"
+description = "Gerador de relatórios customizados, modernos e standalone para Robot Framework (BDD + BrowserLibrary/SeleniumLibrary)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "QA Team" }
+]
+keywords = ["robotframework", "testing", "report", "bdd", "html-report"]
+dependencies = [
+    "robotframework>=6.0",
+    "Jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+robot-report = "main:main"
+robot-report-gui = "gui:main"
+
+[tool.setuptools.packages.find]
+include = ["core*", "templates*", "assets*"]
+py-modules = ["main", "gui", "models"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
