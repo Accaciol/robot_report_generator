@@ -571,16 +571,14 @@
     if (!btn) return;
     btn.addEventListener('click', function () {
       var failedCount = REPORT_STATS.failed;
-      var statusEmoji = failedCount === 0 ? '✅' : '❌';
-      var text = statusEmoji + ' *Relatório de Testes BDD*
-' +
-        '📅 *Execução:* ' + REPORT_STATS.generatedAt + ' · *Versão:* ' + REPORT_STATS.version + '
-' +
-        '📊 *Cenários:* ' + REPORT_STATS.total + ' total (' + REPORT_STATS.passed + ' passou, ' + REPORT_STATS.failed + ' falhou, ' + REPORT_STATS.skipped + ' ignorado)
-' +
-        '🎯 *Taxa de Sucesso:* ' + REPORT_STATS.passRate + '%
-' +
-        '⏱️ *Duração:* ' + REPORT_STATS.elapsed.toFixed(1) + 's';
+      var lines = [
+        statusEmoji + ' *Relatório de Testes BDD*',
+        '📅 *Execução:* ' + REPORT_STATS.generatedAt + ' · *Versão:* ' + REPORT_STATS.version,
+        '📊 *Cenários:* ' + REPORT_STATS.total + ' total (' + REPORT_STATS.passed + ' passou, ' + REPORT_STATS.failed + ' falhou, ' + REPORT_STATS.skipped + ' ignorado)',
+        '🎯 *Taxa de Sucesso:* ' + REPORT_STATS.passRate + '%',
+        '⏱️ *Duração:* ' + REPORT_STATS.elapsed.toFixed(1) + 's'
+      ];
+      var text = lines.join('\\n');
 
       if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(text).then(showToast);
@@ -738,14 +736,16 @@
     var step = button.getAttribute('data-step') || '';
     var msg = button.getAttribute('data-msg') || '';
 
-    var text = 'Falha no Teste: ' + test + '
-' +
-      'Suíte: ' + suite + '
-' +
-      (step ? ('Passo com falha: ' + step + '
-') : '') +
-      'Mensagem de Erro:
-' + msg;
+    var lines = [
+      'Falha no Teste: ' + test,
+      'Suíte: ' + suite
+    ];
+    if (step) {
+      lines.push('Passo com falha: ' + step);
+    }
+    lines.push('Mensagem de Erro:');
+    lines.push(msg);
+    var text = lines.join('\\n');
 
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(text).then(onCopied);
