@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Robot Reports — Gerador local</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header><div class="brand"><span class="mark" aria-hidden="true">R</span><div>Robot Reports<small>GERADOR LOCAL</small></div></div><button id="shutdown" class="quiet">Encerrar</button></header>
+  <main>
+    <div class="intro"><span class="eyebrow">DO RESULTADO À VISÃO COMPLETA</span><h1>Seus testes, em perspectiva.</h1><p>Transforme os resultados do Robot Framework em relatórios prontos para compartilhar.</p></div>
+    <div id="notice" role="alert" hidden></div>
+    <fieldset id="configuration" disabled>
+      <legend class="sr-only">Configuração da geração</legend>
+      <div class="layout">
+        <section class="panel"><div class="section-heading"><div><span class="step">01 / ENTRADA</span><h2>Pastas de resultados</h2></div><button id="add-folder" class="secondary">+ Adicionar pasta</button></div><p class="hint">Selecione pastas que contenham output.xml e suas evidências.</p><ul id="queue" class="queue"></ul><div id="empty" class="empty"><span aria-hidden="true">↳</span><h3>Sua fila começa aqui</h3><p>Adicione uma ou mais pastas para gerar os relatórios em sequência.</p></div></section>
+        <section class="panel"><span class="step">02 / DESTINO</span><h2>Onde salvar</h2><label for="destination">Pasta dos relatórios</label><div class="input-action"><input id="destination" autocomplete="off"><button id="choose-destination" class="secondary">Selecionar</button></div><label for="history">Arquivo de histórico</label><input id="history" autocomplete="off"><button id="choose-history" class="text-button">Selecionar pasta do histórico</button><p class="hint">O mesmo histórico será usado para todas as pastas do lote. Cada relatório terá um nome único.</p></section>
+      </div>
+    </fieldset>
+    <section class="run-bar"><div><strong id="summary" role="status" aria-live="polite">Conectando…</strong><small id="detail">Os arquivos são processados neste computador.</small></div><div class="run-actions"><button id="cancel" class="secondary" disabled>Cancelar</button><button id="generate" class="primary" disabled>Gerar relatórios <span aria-hidden="true">↗</span></button></div></section>
+    <section class="panel results" id="results" hidden><span class="step">03 / RESULTADOS</span><h2>Acompanhe a geração</h2><progress id="progress" max="1" value="0" aria-label="Progresso do lote"></progress><ul id="jobs" class="queue"></ul></section>
+    <details class="panel log-panel"><summary>Log da execução <span>Diagnóstico e mensagens do gerador</span></summary><pre id="logs" tabindex="0" aria-label="Log da execução">Nenhuma execução iniciada.</pre></details>
+    <footer>Robot Framework · Processamento local <span>Fechar esta aba não encerra o servidor.</span></footer>
+  </main>
+  <dialog id="folder-dialog" aria-labelledby="folder-title"><form id="folder-form"><div class="section-heading"><h2 id="folder-title">Selecionar pasta</h2><button type="button" id="close-dialog" class="quiet" aria-label="Fechar seletor de pastas">✕</button></div><label for="folder-path">Caminho da pasta</label><div class="input-action"><input id="folder-path" autocomplete="off"><button class="secondary" type="submit">Ir</button></div><div class="browser-nav"><button type="button" id="parent-folder" class="text-button">↑ Pasta anterior</button><span id="folder-status" role="status"></span></div><div id="folder-error" role="alert"></div><ul id="folders" class="folders"></ul><div class="dialog-footer"><button id="select-folder" type="button" class="primary" disabled>Selecionar esta pasta</button></div></form></dialog>
+</body>
+</html>

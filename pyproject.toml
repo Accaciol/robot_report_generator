@@ -16,6 +16,7 @@ keywords = ["robotframework", "testing", "report", "bdd", "html-report"]
 dependencies = [
     "robotframework>=6.0",
     "Jinja2>=3.1",
+    "Flask>=3.0,<4",
 ]
 
 [project.optional-dependencies]
@@ -27,9 +28,16 @@ dev = [
 robot-report = "main:main"
 robot-report-gui = "gui:main"
 
+[tool.setuptools]
+py-modules = ["main", "gui", "models"]
+
 [tool.setuptools.packages.find]
 include = ["core*", "templates*", "assets*"]
-py-modules = ["main", "gui", "models"]
+
+[tool.setuptools.package-data]
+core = ["web/templates/*.html", "web/static/*.css", "web/static/*.js"]
+templates = ["*.html"]
+assets = ["*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

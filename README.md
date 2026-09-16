@@ -8,12 +8,15 @@ robot_report_generator/
 ├── pyproject.toml              # Metadados do pacote e entrypoints CLI (robot-report / robot-report-gui)
 ├── requirements.txt            # Dependências mínimas de produção
 ├── main.py                     # Orquestrador de linha de comando (CLI)
-├── gui.py                      # Interface desktop multiplataforma (Tkinter)
+├── gui.py                      # Inicialização da interface web local (Flask)
 ├── models.py                   # Dataclasses tipadas (Status, SuiteResult, TestResult, ...)
 ├── core/
 │   ├── xml_parser.py           # output.xml -> dataclasses (Robot Framework Visitor)
 │   ├── history_manager.py      # Persistência e rotação de history.json
-│   └── report_renderer.py      # Renderização HTML standalone (Jinja2 + Base64 com cache)
+│   ├── report_renderer.py      # Renderização HTML standalone (Jinja2 + Base64 com cache)
+│   ├── web_app.py              # Rotas e proteção da interface local
+│   ├── web_jobs.py             # Fila e cancelamento de subprocessos
+│   └── web/                    # HTML, CSS e JavaScript da interface
 ├── templates/
 │   └── report_template.html    # Template com abas executiva / técnica / versões / falhas
 ├── assets/
@@ -33,7 +36,7 @@ pip install -e .
 ```
 Isso disponibiliza os comandos diretos no seu terminal:
 - `robot-report`: Linha de comando para gerar relatórios.
-- `robot-report-gui`: Abre a interface gráfica.
+- `robot-report-gui`: Inicia o servidor local e abre a interface no navegador.
 
 ### Instalação tradicional via requirements
 ```bash
@@ -69,18 +72,43 @@ robot-report --results-dir caminho/para/results
 | `--no-history` | `False` | Gera o relatório sem persistir nem atualizar o arquivo de histórico. |
 | `--no-embed-artifacts`| `False` | Não converte imagens em Base64, referenciando-as pelo caminho local relativo. |
 
-### 2. Via Interface Gráfica (Desktop)
+### 2. Via interface web local
+
+Com as dependências instaladas, execute:
+
 ```bash
 python gui.py
 # ou
 robot-report-gui
 ```
-Recursos da interface:
-- Multiplataforma (Windows, Linux e macOS).
-- Permite enfileirar múltiplas pastas `results` para processamento sequencial.
-- Botão **Cancelar** para interromper execuções longas.
-- Botão **Abrir relatório** que abre o navegador padrão do sistema com segurança.
-- Console de log integrado com autolimpeza de memória para execuções volumosas.
+
+O navegador abre automaticamente. Se isso não acontecer, copie o endereço completo
+exibido no terminal (incluindo `#token=...`). O servidor usa uma porta disponível
+em `127.0.0.1` e aceita somente conexões locais autenticadas. Não compartilhe esse
+endereço: ele contém a chave de acesso à sessão.
+
+1. Clique em **Adicionar pasta**. Navegue pelas pastas ou cole um caminho e clique
+   em **Ir**. A seleção é liberada quando a pasta contém `output.xml`.
+2. Adicione quantas pastas precisar e escolha a pasta dos relatórios. Por padrão,
+   o destino é sua pasta pessoal, e o histórico é `~/robot-report-history.json`.
+   Você pode informar um histórico existente para preservar suas comparações.
+3. Clique em **Gerar relatórios**. A fila é processada sequencialmente; uma falha
+   fica registrada e não impede os próximos itens. Cada HTML recebe um nome único.
+4. Use **Abrir** ou **Baixar** em cada item concluído. Os arquivos permanecem no
+   destino escolhido depois que o servidor é encerrado.
+5. **Cancelar** interrompe o item ativo e os pendentes, aguardando o processo sair
+   antes de permitir uma nova execução. Relatórios já concluídos são preservados.
+6. Use **Encerrar** ou `Ctrl+C` no terminal para desligar o servidor. Fechar a aba
+   não interrompe a fila. Encerrar durante uma execução cancela os itens restantes.
+
+A interface usa HTML, CSS e JavaScript locais, sem precisar de internet. O Python
+continua necessário para gerar os relatórios; não há upload nem hospedagem externa.
+O relatório gerado mantém seu comportamento anterior, incluindo o Chart.js via CDN
+quando o arquivo opcional não foi instalado em `assets/`.
+
+As opções ficam bloqueadas durante o processamento. A fila e os logs pertencem à
+sessão atual; o histórico JSON e os relatórios ficam gravados no disco. O navegador
+de pastas inicia na pasta pessoal e respeita as permissões do usuário do sistema.
 
 ---
 
@@ -118,7 +146,7 @@ O relatório gerado é um arquivo único, interativo e responsivo:
 A base conta com suíte de testes unitários e de integração:
 
 ```bash
-# Execução nativa (sem dependências extras):
+# Após instalar as dependências do projeto:
 python3 -m unittest discover -s tests -v
 
 # Ou com pytest (se instalado):
