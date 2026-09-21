@@ -136,7 +136,13 @@ O relatório gerado é um arquivo único, interativo e responsivo:
 4. **Comparação de Versões**:
    - Compara a execução selecionada com a anterior, apontando testes adicionados, removidos, mantidos ou que sofreram regressão de status.
 
-5. **Modo Escuro (Dark Mode)**:
+5. **Visibilidade das execuções**:
+   - No controle **Execuções visíveis**, desmarque uma execução para ocultá-la em todas as abas, seletores, gráficos e comparações.
+   - A comparação usa a execução visível anterior. **Mostrar todas** restaura as execuções sem alterar o histórico JSON.
+   - Se todas forem ocultadas, o relatório exibe um estado vazio com a opção de restaurar.
+   - A preferência fica salva por relatório no navegador quando o armazenamento está disponível; na visualização isolada da interface local, vale enquanto a página estiver aberta. O arquivo HTML original não é modificado.
+
+6. **Modo Escuro (Dark Mode)**:
    - Alternador de tema no cabeçalho com detecção automática da preferência do sistema operacional e persistência via `localStorage`.
 
 ---

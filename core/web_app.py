@@ -34,7 +34,7 @@ def create_app():
     app.extensions["jobs"] = jobs
 
     def valid_token(value):
-        return hmac.compare_digest(value or "", app.config["SESSION_TOKEN"])
+        return hmac.compare_digest((value or "").encode("utf-8"), app.config["SESSION_TOKEN"].encode("utf-8"))
 
     @app.before_request
     def protect():
