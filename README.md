@@ -97,8 +97,11 @@ endereço: ele contém a chave de acesso à sessão.
    já gerados são arquivos independentes e não são alterados pela exclusão.
 3. Clique em **Gerar relatórios**. A fila é processada sequencialmente; uma falha
    fica registrada e não impede os próximos itens. Cada HTML recebe um nome único.
-4. Use **Abrir** ou **Baixar** em cada item concluído. Os arquivos permanecem no
-   destino escolhido depois que o servidor é encerrado.
+4. Use **Abrir** ou **Baixar** em cada item concluído. Clique em **Gerar PDF** para
+   salvar e baixar um resumo da execução, com indicadores, totais por suíte e nomes
+   dos testes com falha. O PDF recebe o mesmo nome do HTML, com extensão `.pdf`;
+   clicar novamente atualiza o PDF salvo com o layout atual.
+   Os arquivos permanecem no destino escolhido depois que o servidor é encerrado.
 5. **Cancelar** interrompe o item ativo e os pendentes, aguardando o processo sair
    antes de permitir uma nova execução. Relatórios já concluídos são preservados.
 6. Use **Encerrar** ou `Ctrl+C` no terminal para desligar o servidor. Fechar a aba
@@ -106,6 +109,9 @@ endereço: ele contém a chave de acesso à sessão.
 
 A interface usa HTML, CSS e JavaScript locais, sem precisar de internet. O Python
 continua necessário para gerar os relatórios; não há upload nem hospedagem externa.
+Se a exportação mostrar `No module named 'reportlab'`, instale as dependências com
+`python -m pip install -r requirements.txt` usando o mesmo Python que inicia `gui.py`
+e reinicie a interface.
 O relatório gerado mantém seu comportamento anterior, incluindo o Chart.js via CDN
 quando o arquivo opcional não foi instalado em `assets/`.
 

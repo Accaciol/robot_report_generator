@@ -129,7 +129,30 @@ function showState(data) {
           const a = document.createElement('a'); a.textContent = label; a.href = '/reports/' + encodeURIComponent(item.id) + suffix;
           if (!suffix) {a.target = '_blank'; a.rel = 'noopener noreferrer';} else a.setAttribute('download', '');
           links.append(a);
-        }); li.append(links);
+        });
+        const pdfButton = document.createElement('button');
+        pdfButton.type = 'button'; pdfButton.className = 'secondary'; pdfButton.textContent = 'Gerar PDF';
+        pdfButton.setAttribute('aria-label', `Gerar PDF de ${item.folder}`);
+        pdfButton.onclick = async () => {
+          pdfButton.disabled = true; notice('');
+          try {
+            const response = await fetch('/api/reports/' + encodeURIComponent(item.id) + '/pdf', {
+              method:'POST', headers:{'X-Session-Token':token}
+            });
+            if (!response.ok) {
+              const error = await response.json();
+              throw new Error(error.error || 'Não foi possível gerar o PDF.');
+            }
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url; link.download = item.report.split(/[\\/]/).pop().replace(/\.html$/i, '.pdf');
+            document.body.append(link); link.click(); link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+          } catch (error) { notice(error.message); }
+          finally { pdfButton.disabled = false; }
+        };
+        links.append(pdfButton); li.append(links);
       }
       $('jobs').append(li);
     });

@@ -6,12 +6,14 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from datetime import datetime
 from pathlib import Path
 
 from core.history_manager import HistoryManager
+from core.pdf_summary import build_summary
 from core.report_renderer import ReportRenderer
 from core.xml_parser import RobotOutputParser
 from models import ReportData
@@ -35,6 +37,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--history", default="history.json", help="Caminho para o arquivo de histórico")
     parser.add_argument("--report", default="relatorio.html", help="Caminho do relatório HTML final")
+    parser.add_argument("--summary-json", help=argparse.SUPPRESS)
     parser.add_argument(
         "--title",
         default="Relatório de Execução — Testes BDD",
@@ -138,6 +141,9 @@ def main() -> int:
     )
     renderer = ReportRenderer(base_dir=artifact_dir, embed_artifacts=not args.no_embed_artifacts)
     out_path = renderer.render(report_data, args.report)
+    if args.summary_json:
+        Path(args.summary_json).write_text(json.dumps(build_summary(report_data), ensure_ascii=False),
+                                           encoding="utf-8")
 
     logger.info(
         "Relatório gerado em: %s (Total=%d, Pass=%d, Fail=%d, Skip=%d, Taxa=%.1f%%)",

@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
 from collections import deque
@@ -22,6 +24,8 @@ class JobManager:
         self.items = []
         self.logs = deque(maxlen=3000)
         self.reports = {}
+        self.summaries = {}
+        self.pdf_lock = threading.Lock()
         self.active = False
 
     def snapshot(self):
@@ -54,8 +58,11 @@ class JobManager:
                 self.logs.append(str(message)[-8000:])
 
     def _run(self, run_id, history):
+        summary_dir = None
         try:
+            summary_dir = tempfile.TemporaryDirectory(prefix="robot-report-summary-")
             for item in self.items:
+                summary_path = Path(summary_dir.name) / f"{item['id']}.json"
                 with self.lock:
                     if self.cancelled.is_set():
                         item["status"] = "cancelled"
@@ -63,7 +70,7 @@ class JobManager:
                     item["status"] = "running"
                     command = [sys.executable, "-u", str(Path(__file__).resolve().parent.parent / "main.py"),
                                "--results-dir", item["folder"], "--history", history,
-                               "--report", item["report"]]
+                               "--report", item["report"], "--summary-json", str(summary_path)]
                     try:
                         # Holding the lock makes process creation atomic with cancellation.
                         self.process = subprocess.Popen(command, stdout=subprocess.PIPE,
@@ -85,8 +92,14 @@ class JobManager:
                         if self.cancelled.is_set():
                             item["status"] = "cancelled"
                         elif code == 0 and Path(item["report"]).is_file():
-                            item["status"] = "completed"
-                            self.reports[item["id"]] = Path(item["report"])
+                            try:
+                                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                            except (OSError, json.JSONDecodeError) as exc:
+                                item.update(status="failed", error=f"Resumo indisponível: {exc}")
+                            else:
+                                item["status"] = "completed"
+                                self.reports[item["id"]] = Path(item["report"])
+                                self.summaries[item["id"]] = summary
                         else:
                             item.update(status="failed", error=f"Geração falhou (código {code}). Consulte o log.")
                         self.process = None
@@ -101,6 +114,8 @@ class JobManager:
                     if item["status"] in ("waiting", "running"):
                         item.update(status="failed", error=str(exc))
         finally:
+            if summary_dir is not None:
+                summary_dir.cleanup()
             with self.lock:
                 self.process = None
                 self.active = False

@@ -11,6 +11,7 @@ from pathlib import Path
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
 from core.history_manager import HistoryManager
+from core.pdf_summary import render_pdf
 from core.web_jobs import JobManager
 
 
@@ -172,6 +173,22 @@ def create_app():
         if path is None or not path.is_file():
             abort(404)
         return send_file(path, mimetype="text/html", as_attachment=request.args.get("download") == "1")
+
+    @app.post("/api/reports/<ident>/pdf")
+    def report_pdf(ident):
+        with jobs.lock:
+            report_path = jobs.reports.get(ident)
+            summary = jobs.summaries.get(ident)
+        if report_path is None or summary is None or not report_path.is_file():
+            abort(404)
+        pdf_path = report_path.with_suffix(".pdf")
+        try:
+            with jobs.pdf_lock:
+                render_pdf(summary, pdf_path)
+            return send_file(pdf_path, mimetype="application/pdf", as_attachment=True)
+        except Exception as exc:
+            app.logger.exception("Falha ao gerar PDF do relatório %s", ident)
+            return jsonify(error=f"Não foi possível gerar o PDF: {exc}"), 500
 
     @app.post("/api/shutdown")
     def shutdown():

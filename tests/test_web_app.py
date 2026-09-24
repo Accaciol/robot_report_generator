@@ -128,6 +128,44 @@ class TestWebApp(unittest.TestCase):
         self.assertEqual(self.post('/api/history/remove', payload).status_code, 400)
         self.assertEqual(json.loads(history.read_text(encoding='utf-8')), [entries[0], entries[2]])
 
+    def test_pdf_download_uses_original_execution_snapshot(self):
+        folder = self.folder('results')
+        self.assertEqual(self.start([folder]).status_code, 202)
+        item = self.wait()['items'][0]
+        self.assertEqual(item['status'], 'completed')
+        pdf_path = Path(item['report']).with_suffix('.pdf')
+        self.assertFalse(pdf_path.exists())
+        self.assertEqual(self.post('/api/reports/unknown/pdf').status_code, 404)
+        self.assertEqual(self.client.post('/api/reports/' + item['id'] + '/pdf',
+                                          base_url=ORIGIN, headers={'Origin': ORIGIN}).status_code, 403)
+        (folder / 'output.xml').write_text('changed', encoding='utf-8')
+        response = self.post('/api/reports/' + item['id'] + '/pdf')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, 'application/pdf')
+        self.assertIn('attachment', response.headers['Content-Disposition'])
+        self.assertTrue(response.data.startswith(b'%PDF-'))
+        self.assertEqual(pdf_path.read_bytes(), response.data)
+        response.close()
+        if shutil.which('pdftotext'):
+            pdf_text = subprocess.run(['pdftotext', str(pdf_path), '-'], capture_output=True,
+                                      text=True, check=True).stdout
+            self.assertIn('Login com credenciais inválidas', pdf_text)
+        pdf_path.write_bytes(b'old layout')
+        again = self.post('/api/reports/' + item['id'] + '/pdf')
+        self.assertEqual(again.status_code, 200)
+        again.close()
+        self.assertTrue(pdf_path.read_bytes().startswith(b'%PDF-'))
+
+    def test_pdf_failure_keeps_html_available(self):
+        self.assertEqual(self.start([self.folder('results')]).status_code, 202)
+        item = self.wait()['items'][0]
+        with patch('core.web_app.render_pdf', side_effect=OSError('disco cheio')):
+            response = self.post('/api/reports/' + item['id'] + '/pdf')
+        self.assertEqual(response.status_code, 500)
+        self.assertIn('disco cheio', response.json['error'])
+        self.assertTrue(Path(item['report']).is_file())
+        self.assertFalse(Path(item['report']).with_suffix('.pdf').exists())
+
     def test_history_remove_rejects_active_job_and_invalid_selection(self):
         history = self.base / 'history.json'
         entry = dict(timestamp='2026-09-24T10:00:00', version='v1', total=1,
