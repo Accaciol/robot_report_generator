@@ -10,6 +10,7 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
+from core.history_manager import HistoryManager
 from core.web_jobs import JobManager
 
 
@@ -101,6 +102,35 @@ def create_app():
     @app.get("/api/state")
     def state():
         return jsonify(jobs.snapshot())
+
+    @app.get("/api/history")
+    def history_entries():
+        try:
+            path = _path(request.args.get("path"))
+            entries = HistoryManager(path).load()
+            return jsonify(entries=[dict(index=index, timestamp=entry.timestamp,
+                                         version=entry.version, total=entry.total,
+                                         pass_rate=entry.pass_rate)
+                                    for index, entry in enumerate(entries)])
+        except (OSError, ValueError) as exc:
+            return jsonify(error=str(exc)), 400
+
+    @app.post("/api/history/remove")
+    def remove_history_entry():
+        data = request.get_json()
+        if not isinstance(data, dict):
+            abort(400)
+        try:
+            path = _path(data.get("path"))
+            if not isinstance(data.get("timestamp"), str) or not isinstance(data.get("version"), str):
+                raise ValueError("Selecione uma versão válida.")
+            with jobs.lock:
+                if jobs.active or jobs.closing:
+                    return jsonify(error="Aguarde a geração terminar antes de remover uma versão."), 409
+                HistoryManager(path).remove(data.get("index"), data["timestamp"], data["version"])
+            return jsonify(ok=True)
+        except (OSError, ValueError) as exc:
+            return jsonify(error=str(exc)), 400
 
     @app.post("/api/runs")
     def start():

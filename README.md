@@ -92,6 +92,9 @@ endereço: ele contém a chave de acesso à sessão.
 2. Adicione quantas pastas precisar e escolha a pasta dos relatórios. Por padrão,
    o destino é sua pasta pessoal, e o histórico é `~/robot-report-history.json`.
    Você pode informar um histórico existente para preservar suas comparações.
+   Em **Versões salvas**, use **Remover** para excluir uma execução do arquivo de
+   histórico selecionado. A lista é atualizada após cada geração. Relatórios HTML
+   já gerados são arquivos independentes e não são alterados pela exclusão.
 3. Clique em **Gerar relatórios**. A fila é processada sequencialmente; uma falha
    fica registrada e não impede os próximos itens. Cada HTML recebe um nome único.
 4. Use **Abrir** ou **Baixar** em cada item concluído. Os arquivos permanecem no

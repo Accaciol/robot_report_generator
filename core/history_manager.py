@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -62,6 +64,33 @@ class HistoryManager:
         history = history[-self.max_entries :]
         self._save(history)
         return history
+
+    def remove(self, index: int, timestamp: str, version: str) -> None:
+        """Remove exatamente a entrada selecionada, preservando os demais dados."""
+        if type(index) is not int or index < 0:
+            raise ValueError("Selecione uma versão válida.")
+        try:
+            raw = json.loads(self.history_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Não foi possível ler o arquivo de histórico.") from exc
+        if not isinstance(raw, list) or index >= len(raw) or not isinstance(raw[index], dict):
+            raise ValueError("A versão selecionada não existe no histórico.")
+        if raw[index].get("timestamp") != timestamp or raw[index].get("version", "") != version:
+            raise ValueError("O histórico mudou. Recarregue a lista antes de remover.")
+        raw.pop(index)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.history_path.parent,
+                                             prefix=f".{self.history_path.name}.", delete=False) as stream:
+                temporary = Path(stream.name)
+                json.dump(raw, stream, indent=2, ensure_ascii=False)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.history_path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     @staticmethod
     def _timestamp(value: str | datetime | None) -> str:

@@ -7,7 +7,7 @@ if (token) sessionStorage.setItem('robot-session', token);
 history.replaceState(null, '', location.pathname);
 let folders = [], active = false, connected = false, stopped = false, submitting = false;
 let runId = null, generation = 0, home = '', selectionMode = 'results', selectedFolder = null, browseSequence = 0;
-let lastJobs = '';
+let lastJobs = '', historySequence = 0, historyBusy = false, lastHistoryCompletedRun = null;
 
 function notice(message) { $('notice').textContent = message; $('notice').hidden = !message; }
 async function api(path, data) {
@@ -21,7 +21,42 @@ function controls() {
   $('generate').disabled = !connected || active || submitting || stopped || !folders.length;
   $('cancel').disabled = !active || stopped;
   $('shutdown').disabled = !connected || stopped;
+  $('refresh-history').disabled = !connected || stopped || historyBusy;
+  document.querySelectorAll('#history-entries button').forEach(button => {button.disabled = active || stopped || historyBusy;});
 }
+async function refreshHistory() {
+  const path = $('history').value.trim();
+  const sequence = ++historySequence;
+  $('history-entries').replaceChildren();
+  $('history-status').textContent = 'Carregando histórico…';
+  if (!path) { $('history-status').textContent = 'Informe o arquivo de histórico.'; return; }
+  try {
+    const data = await api('/api/history?path=' + encodeURIComponent(path));
+    if (sequence !== historySequence) return;
+    $('history-status').textContent = data.entries.length ? `${data.entries.length} versão(ões) salva(s)` : 'Nenhuma versão salva neste arquivo.';
+    data.entries.slice().reverse().forEach(entry => {
+      const li = document.createElement('li'), info = document.createElement('div'), title = document.createElement('strong'), detail = document.createElement('small'), button = document.createElement('button');
+      info.className = 'item-text'; title.textContent = entry.version || entry.timestamp;
+      detail.textContent = `${entry.timestamp} · ${entry.total} cenários · ${entry.pass_rate}% de sucesso`;
+      info.append(title, detail);
+      button.type = 'button'; button.className = 'secondary danger'; button.textContent = 'Remover';
+      button.setAttribute('aria-label', `Remover versão ${title.textContent}`);
+      button.onclick = async () => {
+        if (!confirm(`Remover a versão "${title.textContent}" do histórico? Esta ação não pode ser desfeita.`)) return;
+        historyBusy = true; controls(); notice('');
+        try {
+          await api('/api/history/remove', {path, index:entry.index, timestamp:entry.timestamp, version:entry.version});
+          if (path === $('history').value.trim()) await refreshHistory();
+        } catch (error) { notice(error.message); await refreshHistory(); }
+        finally { historyBusy = false; controls(); }
+      };
+      li.append(info, button); $('history-entries').append(li);
+    });
+    controls();
+  } catch (error) { if (sequence === historySequence) $('history-status').textContent = error.message; }
+}
+$('refresh-history').onclick = refreshHistory;
+$('history').addEventListener('change', refreshHistory);
 function queueView() {
   $('queue').replaceChildren();
   folders.forEach((path, index) => {
@@ -70,9 +105,14 @@ $('select-folder').onclick = () => {
   else if (selectionMode === 'destination') $('destination').value = path;
   else $('history').value = path.replace(/[\\/]$/, '') + (path.includes('\\') ? '\\':'/') + 'robot-report-history.json';
   $('folder-dialog').close();
+  if (selectionMode === 'history') refreshHistory();
 };
 function showState(data) {
   runId = data.run_id; active = data.active;
+  if (runId && !active && lastHistoryCompletedRun !== runId) {
+    lastHistoryCompletedRun = runId;
+    refreshHistory();
+  }
   $('results').hidden = !runId;
   const done = data.items.filter(item => !['waiting','running'].includes(item.status)).length;
   $('progress').max = data.items.length || 1; $('progress').value = done;
@@ -134,5 +174,6 @@ $('shutdown').onclick = async () => {
     const defaults = await api('/api/session', {}); home = defaults.home;
     $('destination').value = defaults.destination; $('history').value = defaults.history;
     connected = true; queueView(); poll();
+    refreshHistory();
   } catch (error) {notice(error.message); $('summary').textContent = 'Não foi possível conectar';}
 })();

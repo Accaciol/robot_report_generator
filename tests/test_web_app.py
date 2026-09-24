@@ -113,6 +113,38 @@ class TestWebApp(unittest.TestCase):
         self.assertEqual(self.get('/reports/unknown').status_code, 404)
         self.assertEqual(self.get('/reports/' + state['items'][1]['id']).status_code, 404)
 
+    def test_remove_one_history_version(self):
+        history = self.base / 'history.json'
+        entries = [dict(timestamp=f'2026-09-24T10:0{i}:00', version=f'v{i}', total=i + 1,
+                        passed=i + 1, failed=0, skipped=0, elapsed_s=1, pass_rate=100,
+                        tests=[]) for i in range(3)]
+        history.write_text(json.dumps(entries), encoding='utf-8')
+        response = self.get('/api/history', query_string={'path': str(history)})
+        self.assertEqual([entry['version'] for entry in response.json['entries']], ['v0', 'v1', 'v2'])
+        selected = response.json['entries'][1]
+        payload = {'path': str(history), **{key: selected[key] for key in ('index', 'timestamp', 'version')}}
+        self.assertEqual(self.post('/api/history/remove', payload).status_code, 200)
+        self.assertEqual(json.loads(history.read_text(encoding='utf-8')), [entries[0], entries[2]])
+        self.assertEqual(self.post('/api/history/remove', payload).status_code, 400)
+        self.assertEqual(json.loads(history.read_text(encoding='utf-8')), [entries[0], entries[2]])
+
+    def test_history_remove_rejects_active_job_and_invalid_selection(self):
+        history = self.base / 'history.json'
+        entry = dict(timestamp='2026-09-24T10:00:00', version='v1', total=1,
+                     passed=1, failed=0, skipped=0, elapsed_s=1, pass_rate=100)
+        history.write_text(json.dumps([entry]), encoding='utf-8')
+        payload = {'path': str(history), 'index': 0, 'timestamp': entry['timestamp'], 'version': 'v1'}
+        with self.jobs.lock:
+            self.jobs.active = True
+            self.assertEqual(self.post('/api/history/remove', payload).status_code, 409)
+            self.jobs.active = False
+        for invalid in ({**payload, 'index': True}, {**payload, 'version': 'changed'}):
+            self.assertEqual(self.post('/api/history/remove', invalid).status_code, 400)
+        self.assertEqual(json.loads(history.read_text(encoding='utf-8')), [entry])
+        history.write_text('{broken', encoding='utf-8')
+        self.assertEqual(self.post('/api/history/remove', payload).status_code, 400)
+        self.assertEqual(history.read_text(encoding='utf-8'), '{broken')
+
     def test_cancel_waits_and_can_start_again(self):
         folder = self.folder('results')
         real_popen = subprocess.Popen

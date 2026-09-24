@@ -20,6 +20,7 @@
     </fieldset>
     <section class="run-bar"><div><strong id="summary" role="status" aria-live="polite">Conectando…</strong><small id="detail">Os arquivos são processados neste computador.</small></div><div class="run-actions"><button id="cancel" class="secondary" disabled>Cancelar</button><button id="generate" class="primary" disabled>Gerar relatórios <span aria-hidden="true">↗</span></button></div></section>
     <section class="panel results" id="results" hidden><span class="step">03 / RESULTADOS</span><h2>Acompanhe a geração</h2><progress id="progress" max="1" value="0" aria-label="Progresso do lote"></progress><ul id="jobs" class="queue"></ul></section>
+    <section class="panel results" id="history-panel"><div class="section-heading"><div><span class="step">HISTÓRICO</span><h2>Versões salvas</h2></div><button id="refresh-history" class="secondary" disabled>Atualizar</button></div><p class="hint">Remova uma execução do arquivo de histórico selecionado acima. Os relatórios HTML já gerados permanecem como estão.</p><p id="history-status" role="status">Carregando histórico…</p><ul id="history-entries" class="queue"></ul></section>
     <details class="panel log-panel"><summary>Log da execução <span>Diagnóstico e mensagens do gerador</span></summary><pre id="logs" tabindex="0" aria-label="Log da execução">Nenhuma execução iniciada.</pre></details>
     <footer>Robot Framework · Processamento local <span>Fechar esta aba não encerra o servidor.</span></footer>
   </main>
