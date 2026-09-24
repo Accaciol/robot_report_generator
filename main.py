@@ -24,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Gerador de relatório customizado para Robot Framework (BDD + BrowserLibrary)."
     )
+    parser.add_argument("--catalog-dir", help="Catálogo de sistemas; gera HTML consolidado sem alterar o histórico")
     parser.add_argument(
         "--output-xml",
         help="Caminho para o output.xml do Robot; por padrão, procura dentro de --results-dir",
@@ -59,11 +60,24 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Padrão de URL de tickets/tarefas (ex.: 'https://jira.empresa.com/browse/{id}') para gerar links em tags",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.catalog_dir and (args.results_dir or args.output_xml or args.no_embed_artifacts):
+        parser.error("--catalog-dir não aceita --results-dir, --output-xml ou --no-embed-artifacts")
+    return args
 
 
 def main() -> int:
     args = parse_args()
+
+    if args.catalog_dir:
+        from core.catalog_report import render_catalog
+        try:
+            failed = render_catalog(args.catalog_dir, args.report, args.title, args.issue_url)
+        except (OSError, ValueError, TypeError) as exc:
+            logger.error("Não foi possível gerar o catálogo: %s", exc)
+            return 1
+        logger.info("Relatório consolidado gerado em: %s", args.report)
+        return 1 if args.fail_on_error and failed else 0
 
     results_dir = Path(args.results_dir).expanduser().resolve() if args.results_dir else None
     if results_dir is not None and not results_dir.is_dir():

@@ -16,6 +16,10 @@ relatorio*.html
 /history.json
 /log.html
 /report.html
+# Arquivos transitórios do catálogo (recuperação local; nunca publicar no Git)
+/robot-results/systems/.catalog.lock
+/robot-results/systems/.stage-*/
+/robot-results/systems/.*.backup/
 *.log
 .pytest_cache/
 

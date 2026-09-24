@@ -6,7 +6,7 @@ trigger:
       - main
   paths:
     include:
-      - robot-results/current/**
+      - robot-results/systems/**
       - azure-pipelines.yml
 
 pr: none
@@ -25,8 +25,8 @@ steps:
 
   - bash: |
       set -euo pipefail
-      if [ ! -f robot-results/current/output.xml ]; then
-        echo '##vso[task.logissue type=error]Envie os resultados usando scripts/update_robot_results.py antes de executar a pipeline.'
+      if [ ! -d robot-results/systems ]; then
+        echo '##vso[task.logissue type=error]Catálogo robot-results/systems não encontrado.'
         exit 1
       fi
       python -m pip install -r requirements.txt
@@ -35,11 +35,9 @@ steps:
   - bash: |
       set -euo pipefail
       python main.py \
-        --results-dir robot-results/current \
-        --history "$(Agent.TempDirectory)/robot-report-history-$(Build.BuildId).json" \
-        --no-history \
+        --catalog-dir robot-results/systems \
         --report "$(Build.ArtifactStagingDirectory)/relatorio.html"
-    displayName: Gerar relatório da execução atual
+    displayName: Gerar relatório consolidado dos sistemas
 
   - publish: $(Build.ArtifactStagingDirectory)/relatorio.html
     artifact: robot-report

@@ -112,35 +112,123 @@ de pastas inicia na pasta pessoal e respeita as permissões do usuário do siste
 
 ---
 
-## Azure Pipelines
+## Sistemas, histórico e Azure Pipelines
 
-O arquivo `azure-pipelines.yml` executa a CLI no Azure DevOps Services e publica
-`relatorio.html` no artefato `robot-report`. Baixe o HTML nos artefatos da execução
-e abra-o no navegador.
+O relatório consolidado tem um seletor de sistemas. Cada sistema possui seu próprio
+histórico, gráficos, comparações e evidências. O usuário final baixa um único HTML
+pelo artefato `robot-report` da pipeline e seleciona o sistema no cabeçalho.
 
-1. Substitua os resultados usando
-   `python scripts/update_robot_results.py /caminho/para/resultados`.
-   A origem deve conter `output.xml` e suas evidências com caminhos relativos.
-   O script remove os arquivos da execução anterior de `robot-results/current/`.
-2. Faça commit e push dos arquivos de configuração e dos resultados. Nas próximas
-   atualizações, use `git add -A robot-results/current` para incluir as exclusões.
-3. No Azure DevOps, acesse **Pipelines → New pipeline**, selecione o repositório
-   e **Existing Azure Pipelines YAML file**, apontando para `/azure-pipelines.yml`.
-4. Execute a pipeline. Novos commits em `robot-results/current/` na branch `main`
-   disparam a geração automaticamente. Ajuste a branch no YAML se necessário.
-   Mudanças somente no gerador podem ser verificadas com uma execução manual.
+### Importar resultados
 
-Esta configuração mostra apenas a execução atual, sem persistir `history.json`
-entre builds. Testes Robot com status FAIL aparecem no relatório, mas não falham
-a pipeline; entradas ausentes/inválidas ou erros de geração falham a execução.
-O checkout é limpo e o relatório gerado não é commitado de volta no repositório.
+Execute na raiz do projeto:
 
-Configure a limpeza de execuções e artefatos em **Project settings → Pipelines →
-Settings**, conforme a [política de retenção do Azure](https://learn.microsoft.com/en-us/azure/devops/pipelines/policies/retention?view=azure-devops).
-Cada build tem seu próprio artefato: usar o mesmo nome não apaga os anteriores.
-Substituir os resultados limpa a pasta atual, mas não remove versões do histórico
-do Git. Para evitar crescimento por arquivos grandes, use armazenamento de
-artefatos para os outputs em uma futura integração com a pipeline de testes.
+```bash
+python scripts/update_robot_results.py /caminho/resultados-pagamentos \
+  --system pagamentos --name "Pagamentos"
+python scripts/update_robot_results.py /caminho/resultados-cadastro \
+  --system cadastro --name "Cadastro de clientes"
+```
+
+`--system` é obrigatório e aceita letras minúsculas, números e hífens, por exemplo
+`portal-cliente`. `--name` define ou atualiza o nome exibido; nas próximas importações
+pode ser omitido. Um sistema novo sem nome usa seu identificador como nome.
+
+Cada origem precisa conter `output.xml` e as evidências referenciadas por caminhos
+relativos. O script valida o XML e prepara a cópia antes de substituir dados.
+Reimportar o mesmo XML no mesmo sistema não duplica a execução. Um XML alterado
+recebe outro identificador, mesmo se as métricas forem iguais.
+
+A base fica em `robot-results/systems/<sistema>/`:
+
+- `system.json`: identificação e vínculo com a execução que tem evidências.
+- `history.json`: métricas e snapshots dos testes, sem limite automático de execuções.
+- `current/`: XML e evidências completos somente da execução mais recente.
+
+Resultados antigos importados posteriormente entram na ordem cronológica, sem
+substituir os outputs mais recentes. Empates de data são ordenados pelo identificador
+completo da execução. Execuções sem data usam `1970-01-01` para ordenação determinística.
+`log.html` e `report.html` da raiz da origem não são copiados. Cada atualização
+substitui apenas os arquivos do sistema informado.
+
+### Listar e remover uma execução incorreta
+
+```bash
+python scripts/update_robot_results.py --list
+python scripts/update_robot_results.py --list --system pagamentos
+python scripts/update_robot_results.py --system pagamentos --remove ID_COMPLETO_DA_EXECUCAO
+```
+
+Copie o ID completo mostrado pela listagem. A remoção exclui a execução da base e
+recalcula a evolução no próximo relatório. Caso ela possua os outputs atuais, esses
+arquivos também são apagados. A execução anterior continua disponível como resumo;
+suas evidências antigas não podem ser recuperadas automaticamente. Remover a última
+execução mantém o sistema cadastrado, mostrando um estado vazio.
+
+O HTML é uma cópia de consulta: remoções persistentes são feitas pelo mantenedor,
+com o comando acima e um novo commit. HTMLs já baixados não mudam. A opção **Execuções
+visíveis** apenas oculta resultados na visualização. No consolidado, essa preferência
+é mantida por sistema enquanto a página estiver aberta, inclusive ao trocar de sistema.
+
+### Gerar e publicar
+
+```bash
+python main.py --catalog-dir robot-results/systems --report relatorio.html
+# Após importar ou remover, inclua também as exclusões no commit:
+git add -A robot-results/systems
+git commit -m "Atualiza histórico dos sistemas"
+git push
+```
+
+A geração é somente leitura: não acrescenta execuções nem altera a base.
+`--catalog-dir` não pode ser combinado com `--results-dir`, `--output-xml` ou
+`--no-embed-artifacts`. As opções `--title`, `--issue-url` e `--fail-on-error`
+continuam disponíveis. Neste modo, `--history` e `--no-history` não controlam a base:
+o histórico é sempre lido do catálogo, sem gravação.
+
+No Azure DevOps Services, cadastre **Pipelines → New pipeline → Existing Azure
+Pipelines YAML file**, selecionando `/azure-pipelines.yml`. Faça commit dos arquivos
+da implementação também no primeiro envio. Mudanças em `robot-results/systems/`
+na branch `main`, inclusive remoções, disparam a geração. Ajuste a branch no YAML
+se necessário. Mudanças somente no gerador podem ser validadas executando manualmente.
+
+A pipeline publica o consolidado e não faz commits automáticos. Testes Robot com
+status FAIL aparecem no relatório, sem falhar a pipeline por padrão. O uso opcional
+de `--fail-on-error` retorna código 1 quando a execução mais recente de algum sistema
+tem falhas, mas ainda gera o HTML. Catálogo inválido ou XML atual alterado fora do
+importador interrompe a geração. Um catálogo vazio gera um HTML com estado vazio.
+
+Configure a limpeza dos builds e artefatos em **Project settings → Pipelines →
+Settings**, conforme a [retenção do Azure](https://learn.microsoft.com/en-us/azure/devops/pipelines/policies/retention?view=azure-devops).
+Artefatos de builds diferentes não se sobrescrevem. Os resumos sem limite e as versões
+antigas de imagens no Git continuam ocupando espaço; excluir arquivos da pasta atual
+não apaga o histórico do repositório.
+
+### Migrar a entrada anterior
+
+A migração é explícita e requer um identificador de sistema ainda não cadastrado:
+
+```bash
+python scripts/update_robot_results.py robot-results/current \
+  --system sistema-legado --name "Sistema legado" \
+  --migrate-history /caminho/history.json
+```
+
+Se não há histórico legado, importe a pasta antiga normalmente com `--system`.
+A migração não apaga os arquivos de origem; após conferir o HTML, remova a pasta
+legada do repositório se não precisar mais dela. O histórico antigo recebe IDs
+estáveis próprios. Uma entrada legada só é associada ao XML quando data até segundos,
+métricas e snapshots correspondem; entradas ambíguas são preservadas para revisão
+manual pela listagem e remoção por ID.
+
+Para trabalhar com outra base, use `--catalog-dir /caminho/systems` nos comandos de
+gerenciamento e geração. A origem dos outputs deve estar fora dessa base. Use os
+comandos para atualizar o catálogo, evitando editar seus JSONs manualmente. Escritas
+simultâneas são bloqueadas. Uma interrupção na troca de diretórios mantém um backup
+local legível, recuperado na próxima atualização; não remova arquivos `.backup`
+manualmente. Arquivos transitórios do catálogo padrão são ignorados pelo Git.
+
+A CLI de sistema único (`--results-dir`) e a interface local continuam funcionando
+como antes. O gerenciamento de múltiplos sistemas nesta versão é feito pela CLI.
 
 Referências: [gatilhos por branch/caminho](https://learn.microsoft.com/en-us/azure/devops/pipelines/yaml-schema/trigger?view=azure-pipelines)
 e [publicação de artefatos](https://learn.microsoft.com/en-us/azure/devops/pipelines/artifacts/pipeline-artifacts?view=azure-devops).
@@ -193,3 +281,16 @@ python3 -m unittest discover -s tests -v
 # Ou com pytest (se instalado):
 pytest -v
 ```
+
+Os testes de navegador são opcionais e requerem Playwright e Chromium:
+
+```bash
+pip install playwright
+python -m playwright install chromium
+ROBOT_REPORT_BROWSER_TESTS=1 python -m unittest tests.test_catalog_browser -v
+```
+
+Por padrão esses testes bloqueiam o CDN para verificar a consulta sem internet.
+Para validar também os gráficos, defina `ROBOT_REPORT_CHART_JS` com o caminho de
+um arquivo Chart.js 4 UMD local. `ROBOT_REPORT_BROWSER` permite informar o caminho
+de um Chrome/Chromium já instalado. A suíte padrão não precisa dessas dependências.

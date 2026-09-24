@@ -396,7 +396,7 @@
       </div>
       {% endif %}
 
-      <div id="technicalVersionNotice" class="warn-box" style="display:none;">A árvore técnica detalhada pertence à execução atual. Esta versão histórica possui apenas métricas e snapshots.</div>
+      <div id="technicalVersionNotice" class="warn-box" style="display:none;">Esta execução possui apenas métricas e snapshots. Seus detalhes técnicos e evidências completos não estão disponíveis neste relatório.</div>
       <h2>Árvore de Execução</h2>
 
       {% macro render_keyword(kw) %}
@@ -559,8 +559,8 @@
     skipped: {{ stats.skipped }},
     passRate: {{ stats.pass_rate }},
     elapsed: {{ stats.elapsed_s }},
-    version: "{{ version }}",
-    generatedAt: "{{ generated_at }}"
+    version: {{ version|tojson }},
+    generatedAt: {{ generated_at|tojson }}
   };
 
   // ---- Tema Escuro / Claro ----
@@ -845,6 +845,7 @@
     var summary = document.getElementById('versionSummary');
     var empty = document.getElementById('versionEmpty');
     var currentVersion = history.length ? history.length - 1 : 0;
+    var detailedVersion = {{ detailed_index }};
     if (!selects.length || !history.length) { return; }
     var hiddenVersions = new Set();
     var storageKey = 'robot-report-hidden:' + {{ title|tojson }} + ':' + {{ generated_at|tojson }} + ':' + JSON.stringify(history.map(function (entry) { return [entry.timestamp, entry.version]; }));
@@ -921,7 +922,7 @@
       }
       updateGlobalView();
       document.querySelectorAll('.version-context').forEach(function (context) {
-        context.textContent = (currentVersion === history.length - 1 ? 'Detalhes da execução atual' : 'Snapshot histórico') + ' · filtro: ' + (history[currentVersion].version || history[currentVersion].timestamp);
+        context.textContent = (currentVersion === detailedVersion ? 'Detalhes da execução atual' : 'Resumo histórico — detalhes completos indisponíveis') + ' · filtro: ' + (history[currentVersion].version || history[currentVersion].timestamp);
       });
       renderVersion();
     }
@@ -971,7 +972,7 @@
 
     function updateGlobalView() {
       var selected = history[currentVersion];
-      var isCurrent = currentVersion === history.length - 1;
+      var isCurrent = currentVersion === detailedVersion;
       document.getElementById('metricTotal').textContent = selected.total || 0;
       document.getElementById('metricPassed').textContent = selected.passed || 0;
       document.getElementById('metricFailed').textContent = selected.failed || 0;
@@ -997,7 +998,7 @@
           slowestBody.appendChild(row);
         });
       }
-      document.querySelectorAll('.delta-tag').forEach(function (tag) { tag.hidden = !isCurrent || hiddenVersions.size > 0; });
+      document.querySelectorAll('.delta-tag').forEach(function (tag) { tag.hidden = currentVersion !== history.length - 1 || hiddenVersions.size > 0; });
       document.querySelectorAll('#suitesContainer, #tab-dev .tree-toolbar, #tab-dev .tags-panel, #noTestsFoundMsg').forEach(function (element) { element.hidden = !isCurrent; });
       REPORT_STATS.total = selected.total || 0;
       REPORT_STATS.passed = selected.passed || 0;

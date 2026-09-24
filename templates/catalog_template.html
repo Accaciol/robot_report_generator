@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px system-ui, sans-serif; background: #f5f7fa; color: #202124; }
+    header { padding: 14px 24px; background: #fff; border-bottom: 1px solid #dadce0; }
+    h1 { font-size: 18px; margin: 0 0 10px; }
+    select { max-width: 100%; padding: 8px 12px; font: inherit; border: 1px solid #9aa0a6; border-radius: 6px; }
+    label { margin-right: 10px; font-weight: 600; }
+    iframe { display: block; width: 100%; height: calc(100vh - 112px); border: 0; background: #fff; }
+    [hidden] { display: none !important; }
+    #emptyState { padding: 40px 24px; }
+    @media print { header { display: none; } iframe { height: 100vh; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{{ title }}</h1>
+    <label for="systemSelect">Sistema:</label>
+    <select id="systemSelect" {% if not systems %}disabled{% endif %}>
+      {% for system in systems %}<option value="{{ system.id }}">{{ system.name }}</option>{% endfor %}
+    </select>
+  </header>
+  <p id="emptyState" role="status" hidden></p>
+  <main id="systemReports"></main>
+  <script>
+    const systems = {{ systems|tojson }};
+    const selector = document.getElementById('systemSelect');
+    const emptyState = document.getElementById('emptyState');
+    const frames = new Map();
+    function selectSystem() {
+      frames.forEach(frame => { frame.hidden = true; });
+      const system = systems.find(item => item.id === selector.value);
+      emptyState.hidden = !!(system && system.html);
+      if (!system || !system.html) {
+        emptyState.textContent = system
+          ? 'Nenhuma execução cadastrada para ' + system.name + '.'
+          : 'Nenhum sistema cadastrado. Importe os resultados para começar.';
+        return;
+      }
+      if (!frames.has(system.id)) {
+        const frame = document.createElement('iframe');
+        frame.title = 'Relatório de ' + system.name;
+        frame.dataset.systemId = system.id;
+        frame.setAttribute('sandbox', 'allow-scripts allow-popups');
+        frame.srcdoc = system.html;
+        document.getElementById('systemReports').appendChild(frame);
+        frames.set(system.id, frame);
+      }
+      // Conserva filtros e execuções ocultas enquanto o HTML estiver aberto.
+      frames.get(system.id).hidden = false;
+    }
+    selector.addEventListener('change', selectSystem);
+    selectSystem();
+  </script>
+</body>
+</html>

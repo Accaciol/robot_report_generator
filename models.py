@@ -121,6 +121,7 @@ class HistoryEntry:
     pass_rate: float
     version: str = "sem versão"
     tests: list[dict[str, object]] = field(default_factory=list)
+    execution_id: str = ""
 
 
 @dataclass
@@ -138,3 +139,5 @@ class ReportData:
     flaky_tests: list[dict[str, object]] = field(default_factory=list)
     issue_url_pattern: str = ""
     delta_stats: dict[str, object] = field(default_factory=dict)
+    # None mantém a convenção legada: os detalhes pertencem à última execução.
+    detailed_execution_id: str | None = None

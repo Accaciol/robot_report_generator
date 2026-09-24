@@ -1,10 +1,16 @@
-"""Substitui a entrada da pipeline pelos resultados mais recentes do Robot."""
+"""Importa, lista, migra e remove execuções Robot de um catálogo por sistema."""
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 import shutil
 import tempfile
+import sys
+
+# Permite executar diretamente a partir de qualquer diretório, sem instalar o pacote.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.catalog import Catalog
 
 
 def replace_results(source: Path, destination: Path) -> None:
@@ -30,14 +36,41 @@ def replace_results(source: Path, destination: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", type=Path, help="Pasta com output.xml e evidências")
+    parser.add_argument("source", nargs="?", type=Path, help="Pasta com output.xml e evidências")
+    parser.add_argument("--system", help="Identificador estável do sistema")
+    parser.add_argument("--name", help="Nome exibido no relatório")
+    parser.add_argument("--catalog-dir", type=Path,
+                        default=Path(__file__).resolve().parent.parent / "robot-results" / "systems")
+    operations = parser.add_mutually_exclusive_group()
+    operations.add_argument("--list", action="store_true", help="Listar sistemas e IDs completos das execuções")
+    operations.add_argument("--remove", metavar="EXECUTION_ID", help="Remover uma execução do sistema")
+    parser.add_argument("--migrate-history", type=Path,
+                        help="Migrar também um histórico legado para um novo sistema")
     args = parser.parse_args()
-    destination = Path(__file__).resolve().parent.parent / "robot-results" / "current"
+    if args.list or args.remove:
+        if args.source or args.name or args.migrate_history:
+            parser.error("Listar/remover não aceita origem, nome ou migração.")
+    elif not args.source:
+        parser.error("Informe a pasta de origem, --list ou --remove.")
+    if not args.list and not args.system:
+        parser.error("Informe --system para importar ou remover execuções.")
+    catalog = Catalog(args.catalog_dir)
     try:
-        replace_results(args.source, destination)
-    except (ValueError, OSError) as exc:
+        if args.list:
+            systems = [catalog.load(args.system)] if args.system else catalog.systems()
+            for metadata, history, _ in systems:
+                print(f"{metadata['id']} — {metadata['name']} ({len(history)} execuções)")
+                for entry in history:
+                    details = " [com evidências]" if entry.execution_id == metadata['current_execution_id'] else ""
+                    print(f"  {entry.execution_id} | {entry.timestamp} | {entry.pass_rate}%{details}")
+        elif args.remove:
+            catalog.remove(args.system, args.remove)
+            print(f"Execução removida de {args.system}: {args.remove}")
+        else:
+            execution_id = catalog.import_results(args.source, args.system, args.name, args.migrate_history)
+            print(f"Sistema: {args.system}\nExecução: {execution_id}\nCatálogo: {catalog.root}")
+    except (ValueError, TypeError, OSError) as exc:
         parser.exit(1, f"Erro: {exc}\n")
-    print(f"Resultados substituídos em {destination}")
 
 
 if __name__ == "__main__":

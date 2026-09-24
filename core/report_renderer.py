@@ -111,11 +111,15 @@ class ReportRenderer:
         return "cdn", _CHART_JS_CDN_URL
 
     # ---- API pública --------------------------------------------------
-    def render(self, data: ReportData, output_path: str) -> Path:
+    def render_html(self, data: ReportData) -> str:
         self._embed_artifacts(data.suites)
         chart_js_mode, chart_js_content = self._load_chart_js()
         template = self.env.get_template(self.template_name)
-        html = template.render(
+        detailed_index = len(data.history) - 1
+        if data.detailed_execution_id is not None:
+            detailed_index = next((i for i, entry in enumerate(data.history)
+                                   if entry.execution_id == data.detailed_execution_id), -1)
+        return template.render(
             title=data.title,
             stats=data.stats,
             suites=data.suites,
@@ -129,7 +133,11 @@ class ReportRenderer:
             issue_url_pattern=data.issue_url_pattern,
             chart_js_mode=chart_js_mode,
             chart_js_content=chart_js_content,
+            detailed_index=detailed_index,
         )
+
+    def render(self, data: ReportData, output_path: str) -> Path:
+        html = self.render_html(data)
         out_path = Path(output_path)
         out_path.write_text(html, encoding="utf-8")
         return out_path
