@@ -1,0 +1,46 @@
+# Azure DevOps Services: cadastrar esta pipeline após o primeiro envio de resultados.
+trigger:
+  batch: true
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - robot-results/current/**
+      - azure-pipelines.yml
+
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+    clean: true
+
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+    displayName: Selecionar Python
+
+  - bash: |
+      set -euo pipefail
+      if [ ! -f robot-results/current/output.xml ]; then
+        echo '##vso[task.logissue type=error]Envie os resultados usando scripts/update_robot_results.py antes de executar a pipeline.'
+        exit 1
+      fi
+      python -m pip install -r requirements.txt
+    displayName: Validar entrada e instalar dependências
+
+  - bash: |
+      set -euo pipefail
+      python main.py \
+        --results-dir robot-results/current \
+        --history "$(Agent.TempDirectory)/robot-report-history-$(Build.BuildId).json" \
+        --no-history \
+        --report "$(Build.ArtifactStagingDirectory)/relatorio.html"
+    displayName: Gerar relatório da execução atual
+
+  - publish: $(Build.ArtifactStagingDirectory)/relatorio.html
+    artifact: robot-report
+    displayName: Publicar relatório HTML

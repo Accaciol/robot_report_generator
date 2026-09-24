@@ -112,6 +112,41 @@ de pastas inicia na pasta pessoal e respeita as permissões do usuário do siste
 
 ---
 
+## Azure Pipelines
+
+O arquivo `azure-pipelines.yml` executa a CLI no Azure DevOps Services e publica
+`relatorio.html` no artefato `robot-report`. Baixe o HTML nos artefatos da execução
+e abra-o no navegador.
+
+1. Substitua os resultados usando
+   `python scripts/update_robot_results.py /caminho/para/resultados`.
+   A origem deve conter `output.xml` e suas evidências com caminhos relativos.
+   O script remove os arquivos da execução anterior de `robot-results/current/`.
+2. Faça commit e push dos arquivos de configuração e dos resultados. Nas próximas
+   atualizações, use `git add -A robot-results/current` para incluir as exclusões.
+3. No Azure DevOps, acesse **Pipelines → New pipeline**, selecione o repositório
+   e **Existing Azure Pipelines YAML file**, apontando para `/azure-pipelines.yml`.
+4. Execute a pipeline. Novos commits em `robot-results/current/` na branch `main`
+   disparam a geração automaticamente. Ajuste a branch no YAML se necessário.
+   Mudanças somente no gerador podem ser verificadas com uma execução manual.
+
+Esta configuração mostra apenas a execução atual, sem persistir `history.json`
+entre builds. Testes Robot com status FAIL aparecem no relatório, mas não falham
+a pipeline; entradas ausentes/inválidas ou erros de geração falham a execução.
+O checkout é limpo e o relatório gerado não é commitado de volta no repositório.
+
+Configure a limpeza de execuções e artefatos em **Project settings → Pipelines →
+Settings**, conforme a [política de retenção do Azure](https://learn.microsoft.com/en-us/azure/devops/pipelines/policies/retention?view=azure-devops).
+Cada build tem seu próprio artefato: usar o mesmo nome não apaga os anteriores.
+Substituir os resultados limpa a pasta atual, mas não remove versões do histórico
+do Git. Para evitar crescimento por arquivos grandes, use armazenamento de
+artefatos para os outputs em uma futura integração com a pipeline de testes.
+
+Referências: [gatilhos por branch/caminho](https://learn.microsoft.com/en-us/azure/devops/pipelines/yaml-schema/trigger?view=azure-pipelines)
+e [publicação de artefatos](https://learn.microsoft.com/en-us/azure/devops/pipelines/artifacts/pipeline-artifacts?view=azure-devops).
+
+---
+
 ## Funcionalidades do Relatório HTML
 
 O relatório gerado é um arquivo único, interativo e responsivo:
