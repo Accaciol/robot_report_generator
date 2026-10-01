@@ -6,10 +6,14 @@ import os
 import secrets
 import tempfile
 import threading
+import traceback
 from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
+from core.azure_publish import publish_if_configured
+from core.catalog import Catalog
+from core.catalog_overview import overview
 from core.history_manager import HistoryManager
 from core.pdf_summary import render_pdf
 from core.web_jobs import JobManager
@@ -31,7 +35,8 @@ def _writable_directory(path):
 def create_app():
     app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
     app.config.update(SESSION_TOKEN=secrets.token_urlsafe(32), LOCAL_ORIGIN="http://127.0.0.1:5000",
-                      MAX_CONTENT_LENGTH=1024 * 1024, STOP_SERVER=lambda: None)
+                      MAX_CONTENT_LENGTH=1024 * 1024, STOP_SERVER=lambda: None,
+                      CATALOG_DIR=Path(__file__).resolve().parent.parent / "robot-results" / "systems")
     jobs = JobManager()
     app.extensions["jobs"] = jobs
 
@@ -104,6 +109,52 @@ def create_app():
     def state():
         return jsonify(jobs.snapshot())
 
+    @app.get("/api/systems")
+    def systems():
+        try:
+            root = Path(app.config["CATALOG_DIR"])
+            entries = Catalog(root).systems() if root.is_dir() else []
+            return jsonify(systems=[{"id": meta["id"], "name": meta["name"],
+                                    "executions": len(history)} for meta, history, _ in entries])
+        except (OSError, ValueError) as exc:
+            return jsonify(error=str(exc)), 400
+
+    @app.get("/api/overview")
+    def catalog_overview():
+        try:
+            root = Path(app.config["CATALOG_DIR"])
+            entries = Catalog(root).systems() if root.is_dir() else []
+            return jsonify(overview(entries, request.args.get("period", "30")))
+        except (OSError, ValueError) as exc:
+            return jsonify(error=str(exc)), 400
+
+    @app.post("/api/catalog/migrate")
+    def migrate_catalog():
+        data = request.get_json()
+        if not isinstance(data, dict):
+            abort(400)
+        try:
+            with jobs.lock:
+                if jobs.active or jobs.closing:
+                    return jsonify(error="Aguarde a geração terminar antes de migrar."), 409
+                system_id = data.get("system_id")
+                Catalog.validate_id(system_id)
+                source = _path(data.get("source"))
+                history = _path(data.get("history"))
+                if not history.is_file():
+                    raise ValueError("Arquivo de histórico não encontrado.")
+                execution_id = Catalog(app.config["CATALOG_DIR"]).import_results(
+                    source, system_id, data.get("name"), history)
+            warning = None
+            try:
+                publish_if_configured(app.config["CATALOG_DIR"])
+            except (OSError, RuntimeError, ValueError) as exc:
+                warning = f"Migração concluída; publicação falhou: {exc}"
+                jobs.record_error(jobs.run_id, source, warning, [str(exc)])
+            return jsonify(execution_id=execution_id, warning=warning)
+        except (OSError, ValueError, TypeError) as exc:
+            return jsonify(error=str(exc)), 400
+
     @app.get("/api/history")
     def history_entries():
         try:
@@ -139,8 +190,25 @@ def create_app():
         try:
             if not isinstance(data, dict) or not isinstance(data.get("folders"), list) or not data["folders"]:
                 raise ValueError("Adicione pelo menos uma pasta de resultados.")
-            paths = list(dict.fromkeys(_path(p) for p in data["folders"]))
-            for path in paths:
+            sources = []
+            seen = set()
+            for source in data["folders"]:
+                if isinstance(source, dict):
+                    path = _path(source.get("path"))
+                    system_id = source.get("system_id")
+                    Catalog.validate_id(system_id)
+                    name = source.get("name")
+                    if name is not None and (not isinstance(name, str) or not name.strip()):
+                        raise ValueError("Nome da aplicação inválido.")
+                    entry = {"path": path, "system_id": system_id, "name": name}
+                else:
+                    path = _path(source)
+                    entry = path
+                if path not in seen:
+                    sources.append(entry)
+                    seen.add(path)
+            for entry in sources:
+                path = entry["path"] if isinstance(entry, dict) else entry
                 if not (path / "output.xml").is_file():
                     raise ValueError(f"output.xml não encontrado em: {path}")
             destination = _path(data.get("destination"))
@@ -149,8 +217,9 @@ def create_app():
             _writable_directory(history.parent)
             if history.exists() and (not history.is_file() or not os.access(history, os.W_OK)):
                 raise ValueError("O arquivo de histórico não permite escrita.")
-            return jsonify(run_id=jobs.start(paths, destination, history)), 202
-        except (ValueError, OSError) as exc:
+            return jsonify(run_id=jobs.start(sources, destination, history,
+                                             str(app.config["CATALOG_DIR"]))), 202
+        except (ValueError, OSError, TypeError) as exc:
             return jsonify(error=str(exc)), 400
         except RuntimeError as exc:
             return jsonify(error=str(exc)), 409
@@ -176,19 +245,21 @@ def create_app():
 
     @app.post("/api/reports/<ident>/pdf")
     def report_pdf(ident):
-        with jobs.lock:
-            report_path = jobs.reports.get(ident)
-            summary = jobs.summaries.get(ident)
-        if report_path is None or summary is None or not report_path.is_file():
-            abort(404)
-        pdf_path = report_path.with_suffix(".pdf")
-        try:
-            with jobs.pdf_lock:
+        with jobs.pdf_lock:
+            with jobs.lock:
+                report_path = jobs.reports.get(ident)
+                summary = jobs.summaries.get(ident)
+            if report_path is None or summary is None or not report_path.is_file():
+                abort(404)
+            pdf_path = report_path.with_suffix(".pdf")
+            try:
                 render_pdf(summary, pdf_path)
+            except Exception as exc:
+                app.logger.exception("Falha ao gerar PDF do relatório %s", ident)
+                jobs.record_error(jobs.run_id, report_path, f"Falha ao gerar PDF: {exc}",
+                                  traceback.format_exc().splitlines())
+                return jsonify(error=f"Não foi possível gerar o PDF: {exc}"), 500
             return send_file(pdf_path, mimetype="application/pdf", as_attachment=True)
-        except Exception as exc:
-            app.logger.exception("Falha ao gerar PDF do relatório %s", ident)
-            return jsonify(error=f"Não foi possível gerar o PDF: {exc}"), 500
 
     @app.post("/api/shutdown")
     def shutdown():

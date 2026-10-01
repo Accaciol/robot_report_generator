@@ -20,6 +20,7 @@ class TestWebApp(unittest.TestCase):
         self.base = Path(self.tmp.name)
         self.app = create_app()
         self.app.testing = True
+        self.app.config['CATALOG_DIR'] = self.base / 'catalog'
         self.client = self.app.test_client()
         self.jobs = self.app.extensions['jobs']
         self.headers = {'X-Session-Token': self.app.config['SESSION_TOKEN'], 'Origin': ORIGIN}
@@ -53,7 +54,10 @@ class TestWebApp(unittest.TestCase):
         return self.jobs.snapshot()
 
     def test_session_and_local_assets(self):
-        self.assertEqual(self.get('/').status_code, 200)
+        page = self.get('/')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('id="tab-errors"', page.text)
+        self.assertIn('id="panel-errors"', page.text)
         for resource in ('/static/app.js', '/static/app.css'):
             response = self.get(resource)
             self.assertEqual(response.status_code, 200)
@@ -63,6 +67,53 @@ class TestWebApp(unittest.TestCase):
         self.assertIn('HttpOnly', response.headers['Set-Cookie'])
         self.assertIn('SameSite=Strict', response.headers['Set-Cookie'])
         self.assertNotIn(self.app.config['SESSION_TOKEN'], self.get('/').text)
+
+    def test_applications_are_isolated_and_overview_is_available(self):
+        alpha = self.folder('alpha-source')
+        beta = self.folder('beta-source')
+        payload = {'folders': [
+            {'path': str(alpha), 'system_id': 'alpha', 'name': 'Alpha'},
+            {'path': str(beta), 'system_id': 'beta', 'name': 'Beta'}],
+            'destination': str(self.base), 'history': str(self.base / 'legacy.json')}
+        self.assertEqual(self.post('/api/runs', payload).status_code, 202)
+        self.assertEqual([item['status'] for item in self.wait()['items']], ['completed', 'completed'])
+        self.assertFalse((self.base / 'legacy.json').exists())
+        systems = self.get('/api/systems').json['systems']
+        self.assertEqual([item['id'] for item in systems], ['alpha', 'beta'])
+        self.assertEqual([item['executions'] for item in systems], [1, 1])
+        overview = self.get('/api/overview?period=all').json
+        self.assertEqual(overview['latest']['total'], 4)
+        self.assertEqual(overview['trend'][0]['executions'], 2)
+        self.assertEqual(self.get('/api/overview?period=bad').status_code, 400)
+        self.assertEqual(self.post('/api/runs', {**payload, 'folders': [
+            {'path': str(alpha), 'system_id': 'INVALID', 'name': 'Alpha'}]}).status_code, 400)
+
+    def test_catalog_migration_preserves_legacy_file(self):
+        source = self.folder('old-source')
+        self.assertEqual(self.start([source]).status_code, 202)
+        self.wait()
+        history = self.base / 'history.json'
+        original = history.read_bytes()
+        response = self.post('/api/catalog/migrate', {
+            'source': str(source), 'history': str(history),
+            'system_id': 'legacy', 'name': 'Aplicação antiga'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(history.read_bytes(), original)
+        self.assertEqual(self.get('/api/systems').json['systems'][0]['id'], 'legacy')
+        self.assertEqual(self.post('/api/catalog/migrate', {
+            'source': str(source), 'history': str(history),
+            'system_id': 'legacy', 'name': 'Aplicação antiga'}).status_code, 400)
+
+    def test_publish_failure_keeps_local_report_and_records_error(self):
+        source = self.folder('source')
+        payload = {'folders': [{'path': str(source), 'system_id': 'alpha', 'name': 'Alpha'}],
+                   'destination': str(self.base), 'history': str(self.base / 'legacy.json')}
+        with patch('core.web_jobs.publish_if_configured', side_effect=RuntimeError('sem acesso')):
+            self.assertEqual(self.post('/api/runs', payload).status_code, 202)
+            state = self.wait()
+        self.assertEqual(state['items'][0]['status'], 'completed')
+        self.assertTrue(Path(state['items'][0]['report']).exists())
+        self.assertIn('Falha na publicação', state['errors'][0]['message'])
 
     def test_protection(self):
         self.assertEqual(self.client.get('/api/folders', base_url=ORIGIN).status_code, 403)
@@ -99,6 +150,9 @@ class TestWebApp(unittest.TestCase):
         self.assertEqual(self.start([first, malformed, last]).status_code, 202)
         state = self.wait()
         self.assertEqual([i['status'] for i in state['items']], ['completed','failed','completed'])
+        self.assertEqual(len(state['errors']), 1)
+        self.assertEqual(state['errors'][0]['folder'], str(malformed))
+        self.assertIn('output.xml', state['errors'][0]['log'])
         self.assertNotEqual(state['items'][0]['report'], state['items'][2]['report'])
         self.assertEqual(len(json.loads((self.base / 'history.json').read_text())), 1)
         self.post('/api/session')
@@ -112,6 +166,65 @@ class TestWebApp(unittest.TestCase):
         response.close()
         self.assertEqual(self.get('/reports/unknown').status_code, 404)
         self.assertEqual(self.get('/reports/' + state['items'][1]['id']).status_code, 404)
+        self.assertEqual(self.start([first]).status_code, 202)
+        self.assertEqual(self.wait()['errors'][0]['folder'], str(malformed))
+
+    def test_regeneration_replaces_same_html_and_invalidates_old_pdf(self):
+        folder = self.folder('results')
+        self.assertEqual(self.start([folder]).status_code, 202)
+        first = self.wait()['items'][0]
+        report = Path(first['report'])
+        before = report.read_bytes()
+        pdf_response = self.post('/api/reports/' + first['id'] + '/pdf')
+        self.assertEqual(pdf_response.status_code, 200)
+        pdf_response.close()
+        pdf = report.with_suffix('.pdf')
+        self.assertTrue(pdf.is_file())
+
+        with (folder / 'output.xml').open('ab') as stream:
+            stream.write(b'\n')
+        self.assertEqual(self.start([folder]).status_code, 202)
+        second = self.wait()['items'][0]
+        self.assertEqual(second['status'], 'completed')
+        self.assertEqual(second['report'], first['report'])
+        self.assertNotEqual(report.read_bytes(), before)
+        self.assertEqual(len(list(self.base.glob('relatorio_*.html'))), 1)
+        self.assertEqual(len(json.loads((self.base / 'history.json').read_text())), 2)
+        self.assertFalse(pdf.exists())
+        self.post('/api/session')
+        self.assertEqual(self.get('/reports/' + first['id']).status_code, 404)
+        response = self.get('/reports/' + second['id'])
+        self.assertEqual(response.status_code, 200)
+        response.close()
+
+    def test_reused_xml_updates_same_html_without_new_history_entry(self):
+        folder = self.folder('results')
+        self.assertEqual(self.start([folder]).status_code, 202)
+        first = self.wait()['items'][0]
+        self.assertEqual(self.start([folder]).status_code, 202)
+        second = self.wait()['items'][0]
+        self.assertEqual(second['status'], 'completed')
+        self.assertEqual(second['report'], first['report'])
+        self.assertEqual(len(list(self.base.glob('relatorio_*.html'))), 1)
+        self.assertEqual(len(json.loads((self.base / 'history.json').read_text())), 1)
+
+    def test_failed_regeneration_keeps_previous_html(self):
+        folder = self.folder('results')
+        self.assertEqual(self.start([folder]).status_code, 202)
+        first = self.wait()['items'][0]
+        report = Path(first['report'])
+        before = report.read_bytes()
+
+        (folder / 'output.xml').write_text('invalid XML', encoding='utf-8')
+        self.assertEqual(self.start([folder]).status_code, 202)
+        second = self.wait()['items'][0]
+        self.assertEqual(second['status'], 'failed')
+        self.assertEqual(second['report'], first['report'])
+        self.assertEqual(report.read_bytes(), before)
+        self.post('/api/session')
+        response = self.get('/reports/' + first['id'])
+        self.assertEqual(response.status_code, 200)
+        response.close()
 
     def test_remove_one_history_version(self):
         history = self.base / 'history.json'
@@ -163,6 +276,10 @@ class TestWebApp(unittest.TestCase):
             response = self.post('/api/reports/' + item['id'] + '/pdf')
         self.assertEqual(response.status_code, 500)
         self.assertIn('disco cheio', response.json['error'])
+        errors = self.jobs.snapshot()['errors']
+        self.assertEqual(len(errors), 1)
+        self.assertIn('Falha ao gerar PDF', errors[0]['message'])
+        self.assertIn('disco cheio', errors[0]['log'])
         self.assertTrue(Path(item['report']).is_file())
         self.assertFalse(Path(item['report']).with_suffix('.pdf').exists())
 

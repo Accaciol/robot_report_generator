@@ -7,7 +7,100 @@ if (token) sessionStorage.setItem('robot-session', token);
 history.replaceState(null, '', location.pathname);
 let folders = [], active = false, connected = false, stopped = false, submitting = false;
 let runId = null, generation = 0, home = '', selectionMode = 'results', selectedFolder = null, browseSequence = 0;
-let lastJobs = '', historySequence = 0, historyBusy = false, lastHistoryCompletedRun = null;
+let lastJobs = '', lastErrors = '', historySequence = 0, historyBusy = false, lastHistoryCompletedRun = null;
+let knownSystems = [];
+
+function selectedSystem() {
+  const systemId = $('system-id').value.trim();
+  const name = $('system-name').value.trim();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(systemId)) throw new Error('Informe um identificador válido para a aplicação.');
+  if (!name) throw new Error('Informe o nome da aplicação.');
+  return {system_id: systemId, name};
+}
+async function refreshSystems() {
+  const data = await api('/api/systems');
+  knownSystems = data.systems;
+  const select = $('system-select'), previous = select.value;
+  select.replaceChildren(new Option('Nova aplicação', ''));
+  knownSystems.forEach(system => select.add(new Option(system.name, system.id)));
+  if (knownSystems.some(system => system.id === previous)) select.value = previous;
+}
+async function refreshOverview() {
+  const data = await api('/api/overview?period=' + encodeURIComponent($('overview-period').value));
+  $('overview-summary').textContent = `${data.applications.length} aplicação(ões) · ${data.latest.total} cenários nas execuções mais recentes · ${data.latest.pass_rate}% de aprovação`;
+  $('overview-applications').replaceChildren();
+  data.applications.forEach(app => {
+    const item = document.createElement('li'), label = document.createElement('div');
+    label.className = 'item-text';
+    const name = document.createElement('strong'), details = document.createElement('small');
+    name.textContent = app.name;
+    details.textContent = `${app.executions} execuções · ${app.total} cenários na última · ${app.pass_rate}% de aprovação`;
+    label.append(name, details); item.append(label); $('overview-applications').append(item);
+  });
+  $('overview-trend').replaceChildren();
+  data.trend.forEach(day => {
+    const item = document.createElement('li');
+    item.textContent = `${day.date} · ${day.executions} execuções · ${day.total} cenários · ${day.pass_rate}% de aprovação`;
+    $('overview-trend').append(item);
+  });
+}
+$('overview-period').onchange = () => refreshOverview().catch(error => notice(error.message));
+$('system-select').onchange = () => {
+  const selected = knownSystems.find(system => system.id === $('system-select').value);
+  $('system-id').value = selected ? selected.id : '';
+  $('system-name').value = selected ? selected.name : '';
+};
+$('migrate-history').onclick = async () => {
+  try {
+    const system = selectedSystem();
+    if (knownSystems.some(item => item.id === system.system_id)) throw new Error('Escolha um identificador novo para a migração.');
+    const result = await api('/api/catalog/migrate', {...system, source:$('migration-source').value, history:$('history').value});
+    notice(result.warning || 'Histórico migrado. O arquivo antigo foi preservado.');
+    await refreshSystems(); await refreshOverview();
+  } catch (error) {notice(error.message);}
+};
+
+const diagnosticTabs = [$('tab-log'), $('tab-errors')];
+function selectDiagnosticTab(tab) {
+  diagnosticTabs.forEach(button => {
+    const selected = button === tab;
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    $(button.getAttribute('aria-controls')).hidden = !selected;
+  });
+}
+diagnosticTabs.forEach((button, index) => {
+  button.onclick = () => selectDiagnosticTab(button);
+  button.onkeydown = event => {
+    let next = index;
+    if (event.key === 'ArrowRight') next = (index + 1) % diagnosticTabs.length;
+    else if (event.key === 'ArrowLeft') next = (index + diagnosticTabs.length - 1) % diagnosticTabs.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = diagnosticTabs.length - 1;
+    else return;
+    event.preventDefault();
+    selectDiagnosticTab(diagnosticTabs[next]);
+    diagnosticTabs[next].focus();
+  };
+});
+
+function showErrors(errors) {
+  const signature = JSON.stringify(errors);
+  if (signature === lastErrors) return;
+  lastErrors = signature;
+  $('error-count').textContent = `(${errors.length})`;
+  $('error-empty').hidden = errors.length > 0;
+  $('error-entries').replaceChildren();
+  errors.slice().reverse().forEach(error => {
+    const li = document.createElement('li'), details = document.createElement('details');
+    const summary = document.createElement('summary'), message = document.createElement('p');
+    const log = document.createElement('pre');
+    summary.textContent = `${error.timestamp.replace('T', ' ')} · ${error.folder}`;
+    message.textContent = error.message;
+    log.textContent = error.log || 'Sem detalhes adicionais no log.';
+    details.append(summary, message, log); li.append(details); $('error-entries').append(li);
+  });
+}
 
 function notice(message) { $('notice').textContent = message; $('notice').hidden = !message; }
 async function api(path, data) {
@@ -59,9 +152,10 @@ $('refresh-history').onclick = refreshHistory;
 $('history').addEventListener('change', refreshHistory);
 function queueView() {
   $('queue').replaceChildren();
-  folders.forEach((path, index) => {
+  folders.forEach((source, index) => {
+    const path = source.path;
     const li = document.createElement('li'), text = document.createElement('div'), strong = document.createElement('strong'), small = document.createElement('small'), button = document.createElement('button');
-    text.className = 'item-text'; strong.textContent = path.split(/[\\/]/).filter(Boolean).pop() || path; small.textContent = path;
+    text.className = 'item-text'; strong.textContent = path.split(/[\\/]/).filter(Boolean).pop() || path; small.textContent = source.name + ' · ' + path;
     text.append(strong, small); button.textContent = 'Remover'; button.className = 'quiet'; button.setAttribute('aria-label', `Remover ${path}`);
     button.onclick = () => {folders.splice(index, 1); queueView();}; li.append(text, button); $('queue').append(li);
   });
@@ -101,7 +195,13 @@ $('parent-folder').onclick = () => {if (selectedFolder) browse(selectedFolder.pa
 $('select-folder').onclick = () => {
   if (!selectedFolder) return;
   const path = selectedFolder.path;
-  if (selectionMode === 'results') {if (!folders.includes(path)) folders.push(path); queueView();}
+  if (selectionMode === 'results') {
+    try {
+      const system = selectedSystem();
+      if (!folders.some(source => source.path === path)) folders.push({path, ...system});
+      queueView();
+    } catch (error) {notice(error.message); return;}
+  }
   else if (selectionMode === 'destination') $('destination').value = path;
   else $('history').value = path.replace(/[\\/]$/, '') + (path.includes('\\') ? '\\':'/') + 'robot-report-history.json';
   $('folder-dialog').close();
@@ -112,6 +212,7 @@ function showState(data) {
   if (runId && !active && lastHistoryCompletedRun !== runId) {
     lastHistoryCompletedRun = runId;
     refreshHistory();
+    refreshSystems().then(refreshOverview).catch(error => notice(error.message));
   }
   $('results').hidden = !runId;
   const done = data.items.filter(item => !['waiting','running'].includes(item.status)).length;
@@ -159,6 +260,7 @@ function showState(data) {
   }
   const logText = data.logs.join('\n') || 'Nenhuma execução iniciada.';
   if ($('logs').textContent !== logText) { $('logs').textContent = logText; $('logs').scrollTop = $('logs').scrollHeight; }
+  showErrors(data.errors || []);
   if (runId) {
     const failures = data.items.filter(item => item.status === 'failed').length;
     const cancelled = data.items.some(item => item.status === 'cancelled');
@@ -196,6 +298,7 @@ $('shutdown').onclick = async () => {
   try {
     const defaults = await api('/api/session', {}); home = defaults.home;
     $('destination').value = defaults.destination; $('history').value = defaults.history;
+    await refreshSystems(); await refreshOverview();
     connected = true; queueView(); poll();
     refreshHistory();
   } catch (error) {notice(error.message); $('summary').textContent = 'Não foi possível conectar';}

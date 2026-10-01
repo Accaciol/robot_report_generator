@@ -28,6 +28,7 @@ def parse_args() -> argparse.Namespace:
         description="Gerador de relatório customizado para Robot Framework (BDD + BrowserLibrary)."
     )
     parser.add_argument("--catalog-dir", help="Catálogo de sistemas; gera HTML consolidado sem alterar o histórico")
+    parser.add_argument("--site-dir", help="Gera também um site estático para publicação (requer --catalog-dir)")
     parser.add_argument(
         "--output-xml",
         help="Caminho para o output.xml do Robot; por padrão, procura dentro de --results-dir",
@@ -67,6 +68,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.catalog_dir and (args.results_dir or args.output_xml or args.no_embed_artifacts):
         parser.error("--catalog-dir não aceita --results-dir, --output-xml ou --no-embed-artifacts")
+    if args.site_dir and not args.catalog_dir:
+        parser.error("--site-dir requer --catalog-dir")
     return args
 
 
@@ -74,9 +77,11 @@ def main() -> int:
     args = parse_args()
 
     if args.catalog_dir:
-        from core.catalog_report import render_catalog
+        from core.catalog_report import render_catalog, render_site
         try:
             failed = render_catalog(args.catalog_dir, args.report, args.title, args.issue_url)
+            if args.site_dir:
+                failed = render_site(args.catalog_dir, args.site_dir, args.title, args.issue_url) or failed
         except (OSError, ValueError, TypeError) as exc:
             logger.error("Não foi possível gerar o catálogo: %s", exc)
             return 1

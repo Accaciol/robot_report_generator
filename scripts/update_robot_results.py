@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.catalog import Catalog
+from core.azure_publish import publish_if_configured
 
 
 def replace_results(source: Path, destination: Path) -> None:
@@ -66,10 +67,14 @@ def main() -> None:
         elif args.remove:
             catalog.remove(args.system, args.remove)
             print(f"Execução removida de {args.system}: {args.remove}")
+            if publish_if_configured(catalog.root):
+                print("Site atualizado no Azure Static Web Apps.")
         else:
             execution_id = catalog.import_results(args.source, args.system, args.name, args.migrate_history)
             print(f"Sistema: {args.system}\nExecução: {execution_id}\nCatálogo: {catalog.root}")
-    except (ValueError, TypeError, OSError) as exc:
+            if publish_if_configured(catalog.root):
+                print("Site atualizado no Azure Static Web Apps.")
+    except (ValueError, TypeError, OSError, RuntimeError) as exc:
         parser.exit(1, f"Erro: {exc}\n")
 
 

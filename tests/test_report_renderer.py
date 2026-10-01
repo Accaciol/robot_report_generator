@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core.report_renderer import ReportRenderer
 from models import (
@@ -89,6 +90,17 @@ class TestReportRenderer(unittest.TestCase):
         self.assertIn("treeSearch", content)
         self.assertIn("filter-btn", content)
         self.assertIn("copyFailureError", content)
+
+    def test_failed_replacement_preserves_existing_html(self):
+        self.output_html.write_text("relatório anterior", encoding="utf-8")
+        data = ReportData(stats=ExecutionStats(), suites=[], history=[],
+                          generated_at="01/10/2026 12:00:00")
+        renderer = ReportRenderer(base_dir=self.base_dir)
+        with patch("core.report_renderer.os.replace", side_effect=OSError("disco cheio")):
+            with self.assertRaises(OSError):
+                renderer.render(data, str(self.output_html))
+        self.assertEqual(self.output_html.read_text(encoding="utf-8"), "relatório anterior")
+        self.assertEqual(list(self.base_dir.glob(".output.html.*")), [])
 
 
 if __name__ == "__main__":

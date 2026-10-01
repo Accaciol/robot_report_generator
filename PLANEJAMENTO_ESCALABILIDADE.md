@@ -2,7 +2,7 @@
 
 **Estado:** propostas para implementação futura. **Objetivo:** acompanhar meses ou anos de execuções sem exigir que o navegador carregue todo o histórico e todas as evidências de uma vez.
 
-**Pré-requisito atendido:** a geração individual identifica `output.xml` já processado, gera o HTML solicitado e mantém uma única entrada por execução no histórico. A futura migração de dados deve preservar essa regra.
+**Pré-requisito atendido:** a geração individual identifica `output.xml` já processado e mantém uma única entrada por execução no histórico. A interface local atualiza um HTML por pasta de origem. A futura migração de dados deve preservar essas regras.
 
 ## Situação atual
 

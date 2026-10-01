@@ -9,6 +9,8 @@ from __future__ import annotations
 import base64
 import logging
 import mimetypes
+import os
+import tempfile
 from dataclasses import asdict
 from pathlib import Path
 
@@ -139,5 +141,14 @@ class ReportRenderer:
     def render(self, data: ReportData, output_path: str) -> Path:
         html = self.render_html(data)
         out_path = Path(output_path)
-        out_path.write_text(html, encoding="utf-8")
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=out_path.parent,
+                                             prefix=f".{out_path.name}.", delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(html)
+            os.replace(temporary, out_path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
         return out_path

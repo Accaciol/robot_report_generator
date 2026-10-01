@@ -1,61 +1,117 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title }}</title>
   <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; font: 15px system-ui, sans-serif; background: #f5f7fa; color: #202124; }
-    header { padding: 14px 24px; background: #fff; border-bottom: 1px solid #dadce0; }
-    h1 { font-size: 18px; margin: 0 0 10px; }
-    select { max-width: 100%; padding: 8px 12px; font: inherit; border: 1px solid #9aa0a6; border-radius: 6px; }
-    label { margin-right: 10px; font-weight: 600; }
-    iframe { display: block; width: 100%; height: calc(100vh - 112px); border: 0; background: #fff; }
-    [hidden] { display: none !important; }
-    #emptyState { padding: 40px 24px; }
+    * { box-sizing: border-box; } body { margin: 0; font: 15px system-ui, sans-serif; background: #f5f7fa; color: #202124; }
+    header { padding: 14px 24px; background: #fff; border-bottom: 1px solid #dadce0; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+    h1 { font-size: 18px; margin: 0; } h2 { font-size: 18px; }
+    button, select { padding: 8px 12px; font: inherit; border: 1px solid #9aa0a6; border-radius: 6px; background: #fff; cursor: pointer; }
+    button[aria-pressed="true"] { background: #174ea6; color: white; } label { font-weight: 600; }
+    #overview { padding: 24px; } .metrics, .applications { display: flex; gap: 12px; flex-wrap: wrap; margin: 18px 0; }
+    .card { background: #fff; border: 1px solid #dadce0; border-radius: 8px; padding: 15px; min-width: 150px; flex: 1; }
+    .card strong { display: block; font-size: 24px; } .card small { color: #5f6368; }
+    .applications .card strong { font-size: 18px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; } th, td { text-align: left; border-bottom: 1px solid #dadce0; padding: 10px; }
+    iframe { display: block; width: 100%; height: calc(100vh - 78px); border: 0; background: #fff; }
+    [hidden] { display: none !important; } #emptyState { padding: 40px 24px; }
     @media print { header { display: none; } iframe { height: 100vh; } }
   </style>
 </head>
 <body>
   <header>
-    <h1>{{ title }}</h1>
-    <label for="systemSelect">Sistema:</label>
-    <select id="systemSelect" {% if not systems %}disabled{% endif %}>
-      {% for system in systems %}<option value="{{ system.id }}">{{ system.name }}</option>{% endfor %}
-    </select>
+    <h1>{{ title }}</h1><button id="overviewButton" type="button" aria-pressed="true">Visão geral</button>
+    <label for="systemSelect">Aplicação:</label>
+    <select id="systemSelect"><option value="">Escolha uma aplicação</option>{% for system in systems %}<option value="{{ system.id }}">{{ system.name }}</option>{% endfor %}</select>
   </header>
-  <p id="emptyState" role="status" hidden></p>
-  <main id="systemReports"></main>
+  <main>
+    <section id="overview" aria-label="Visão geral">
+      <h2>Execuções mais recentes por aplicação</h2><div id="metrics" class="metrics"></div>
+      <h2>Aplicações</h2><div id="applications" class="applications"></div>
+      <h2>Evolução diária</h2><label for="period">Período:</label>
+      <select id="period"><option value="30">30 dias</option><option value="90">90 dias</option><option value="365">365 dias</option><option value="all">Todo o período</option></select>
+      <p id="trendEmpty" hidden>Nenhuma execução no período.</p>
+      <table id="trendTable"><thead><tr><th>Dia (UTC)</th><th>Execuções</th><th>Cenários</th><th>Aprovados</th><th>Falhas</th><th>Taxa</th></tr></thead><tbody id="trendBody"></tbody></table>
+    </section>
+    <p id="emptyState" role="status" hidden></p><div id="systemReports"></div>
+  </main>
   <script>
     const systems = {{ systems|tojson }};
+    const overviews = {{ overviews|tojson }};
+    const siteMode = {{ site_mode|tojson }};
+    const versionAtRender = {{ version|default('')|tojson }};
     const selector = document.getElementById('systemSelect');
+    const overviewButton = document.getElementById('overviewButton');
     const emptyState = document.getElementById('emptyState');
     const frames = new Map();
+    function metric(label, value) {
+      const card = document.createElement('div'); card.className = 'card';
+      const number = document.createElement('strong'); number.textContent = value;
+      const caption = document.createElement('small'); caption.textContent = label;
+      card.append(number, caption); return card;
+    }
+    function updateOverview() {
+      const data = overviews[document.getElementById('period').value];
+      const metrics = document.getElementById('metrics'); metrics.replaceChildren();
+      [['Aplicações', data.applications.length], ['Cenários', data.latest.total],
+       ['Aprovados', data.latest.passed], ['Falhas', data.latest.failed],
+       ['Taxa de aprovação', data.latest.pass_rate + '%']].forEach(pair => metrics.append(metric(...pair)));
+      const applications = document.getElementById('applications'); applications.replaceChildren();
+      data.applications.forEach(app => {
+        const card = document.createElement('div'); card.className = 'card';
+        const name = document.createElement('strong'); name.textContent = app.name;
+        const detail = document.createElement('small');
+        detail.textContent = app.total + ' cenários · ' + app.pass_rate + '% · ' + app.executions + ' execuções';
+        card.append(name, detail); applications.append(card);
+      });
+      const body = document.getElementById('trendBody'); body.replaceChildren();
+      data.trend.forEach(day => {
+        const row = document.createElement('tr');
+        [day.date, day.executions, day.total, day.passed, day.failed, day.pass_rate + '%'].forEach(value => {
+          const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
+        }); body.append(row);
+      });
+      document.getElementById('trendEmpty').hidden = !!data.trend.length;
+      document.getElementById('trendTable').hidden = !data.trend.length;
+    }
     function selectSystem() {
       frames.forEach(frame => { frame.hidden = true; });
       const system = systems.find(item => item.id === selector.value);
-      emptyState.hidden = !!(system && system.html);
-      if (!system || !system.html) {
-        emptyState.textContent = system
-          ? 'Nenhuma execução cadastrada para ' + system.name + '.'
-          : 'Nenhum sistema cadastrado. Importe os resultados para começar.';
-        return;
-      }
+      const report = system && (siteMode ? system.report : system.html);
+      document.getElementById('overview').hidden = !!system;
+      overviewButton.setAttribute('aria-pressed', String(!system));
+      emptyState.hidden = !system || !!report;
+      if (!system) return;
+      if (!report) { emptyState.textContent = 'Nenhuma execução cadastrada para ' + system.name + '.'; return; }
       if (!frames.has(system.id)) {
         const frame = document.createElement('iframe');
         frame.title = 'Relatório de ' + system.name;
         frame.dataset.systemId = system.id;
         frame.setAttribute('sandbox', 'allow-scripts allow-popups');
-        frame.srcdoc = system.html;
-        document.getElementById('systemReports').appendChild(frame);
-        frames.set(system.id, frame);
+        if (siteMode) frame.src = report; else frame.srcdoc = report;
+        document.getElementById('systemReports').append(frame); frames.set(system.id, frame);
       }
-      // Conserva filtros e execuções ocultas enquanto o HTML estiver aberto.
       frames.get(system.id).hidden = false;
     }
     selector.addEventListener('change', selectSystem);
-    selectSystem();
+    overviewButton.onclick = () => { selector.value = ''; selectSystem(); };
+    document.getElementById('period').addEventListener('change', updateOverview);
+    updateOverview(); selectSystem();
+    if (siteMode) {
+      let version = versionAtRender;
+      async function checkVersion() {
+        try {
+          const response = await fetch('version.json', {cache: 'no-store'});
+          if (response.ok) {
+            const current = (await response.json()).version;
+            if (version && current !== version) location.reload();
+            version = current;
+          }
+        } catch (_) { /* Rede temporariamente indisponível. */ }
+      }
+      checkVersion(); setInterval(checkVersion, 60000);
+    }
   </script>
 </body>
 </html>

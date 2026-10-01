@@ -3,3 +3,17 @@
 #history-status{font-size:12px;margin:12px 0 0}
 .report-links{align-items:center;flex-wrap:wrap}
 .report-links button{padding:7px 10px}
+
+.diagnostics{margin-bottom:22px}
+.diagnostic-tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:4px 0 16px}
+.diagnostic-tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;color:var(--muted);padding:10px 14px;font-size:13px}
+.diagnostic-tabs button[aria-selected="true"]{border-bottom-color:var(--accent);color:var(--accent)}
+select{font:inherit;border:1px solid #cedad3;border-radius:8px;padding:10px;background:#fff;color:#27483b;max-width:100%}
+#system-select{width:100%}
+#catalog-panel,#migration-panel{margin-bottom:22px}
+.error-list{list-style:none;margin:0;padding:0}
+.error-list li{border-top:1px solid var(--line);padding:14px 0}
+.error-list li:first-child{border-top:0}
+.error-list summary{overflow-wrap:anywhere}
+.error-list p{color:#a43827;font-size:13px;margin:10px 0}
+.error-list pre{margin:10px 0 0}

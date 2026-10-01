@@ -72,9 +72,10 @@ robot-report --results-dir caminho/para/results
 | `--no-history` | `False` | Gera o relatório sem persistir nem atualizar o arquivo de histórico. |
 | `--no-embed-artifacts`| `False` | Não converte imagens em Base64, referenciando-as pelo caminho local relativo. |
 
-Gerar novamente a partir do mesmo `output.xml` cria outro HTML, mas não adiciona
-uma versão repetida ao histórico. Entradas antigas idênticas são exibidas uma única
-vez e consolidadas no arquivo de histórico na próxima geração.
+Gerar novamente a partir do mesmo `output.xml` não adiciona uma versão repetida ao
+histórico. A CLI substitui o HTML quando recebe o mesmo caminho em `--report`.
+Entradas antigas idênticas são exibidas uma única vez e consolidadas no arquivo de
+histórico na próxima geração.
 
 ### 2. Via interface web local
 
@@ -91,20 +92,24 @@ exibido no terminal (incluindo `#token=...`). O servidor usa uma porta disponív
 em `127.0.0.1` e aceita somente conexões locais autenticadas. Não compartilhe esse
 endereço: ele contém a chave de acesso à sessão.
 
-1. Clique em **Adicionar pasta**. Navegue pelas pastas ou cole um caminho e clique
-   em **Ir**. A seleção é liberada quando a pasta contém `output.xml`.
+1. Selecione uma aplicação cadastrada ou informe o identificador e nome de uma
+   nova aplicação. Clique em **Adicionar pasta**; a seleção é liberada quando a
+   pasta contém `output.xml`. A aplicação escolhida fica associada a essa pasta
+   na fila, permitindo misturar aplicações no mesmo lote.
 2. Adicione quantas pastas precisar e escolha a pasta dos relatórios. Por padrão,
-   o destino é sua pasta pessoal, e o histórico é `~/robot-report-history.json`.
-   Você pode informar um histórico existente para preservar suas comparações.
-   Em **Versões salvas**, use **Remover** para excluir uma execução do arquivo de
-   histórico selecionado. A lista é atualizada após cada geração. Relatórios HTML
-   já gerados são arquivos independentes e não são alterados pela exclusão.
+   o destino é sua pasta pessoal. O histórico de cada aplicação fica no catálogo
+   `robot-results/systems/`. O campo de histórico antigo é usado apenas na
+   migração explícita, que preserva o arquivo original.
 3. Clique em **Gerar relatórios**. A fila é processada sequencialmente; uma falha
-   fica registrada e não impede os próximos itens. Cada HTML recebe um nome único.
+   fica registrada e não impede os próximos itens. Cada pasta de origem usa sempre
+   o mesmo nome de HTML no destino escolhido. Uma nova geração substitui esse arquivo
+   somente após terminar com sucesso; se falhar, o HTML anterior permanece disponível.
+   Consulte **Visão geral** para comparar aplicações e períodos.
 4. Use **Abrir** ou **Baixar** em cada item concluído. Clique em **Gerar PDF** para
    salvar e baixar um resumo da execução, com indicadores, totais por suíte e nomes
    dos testes com falha. O PDF recebe o mesmo nome do HTML, com extensão `.pdf`;
-   clicar novamente atualiza o PDF salvo com o layout atual.
+   clicar novamente atualiza o PDF salvo com o layout atual. Uma nova geração do HTML
+   remove o PDF anterior para evitar um resumo desatualizado.
    Os arquivos permanecem no destino escolhido depois que o servidor é encerrado.
 5. **Cancelar** interrompe o item ativo e os pendentes, aguardando o processo sair
    antes de permitir uma nova execução. Relatórios já concluídos são preservados.
@@ -120,7 +125,10 @@ O relatório gerado mantém seu comportamento anterior, incluindo o Chart.js via
 quando o arquivo opcional não foi instalado em `assets/`.
 
 As opções ficam bloqueadas durante o processamento. A fila e os logs pertencem à
-sessão atual; o histórico JSON e os relatórios ficam gravados no disco. O navegador
+sessão atual. Em **Logs da geração**, a aba **Log completo** mostra a execução mais
+recente; **Erros** reúne as falhas de HTML e PDF da sessão com pasta, motivo e detalhes
+do processo. Até 50 erros ficam em memória enquanto o servidor estiver aberto.
+O histórico JSON e os relatórios ficam gravados no disco. O navegador
 de pastas inicia na pasta pessoal e respeita as permissões do usuário do sistema.
 
 ---
@@ -187,6 +195,36 @@ visíveis** apenas oculta resultados na visualização. No consolidado, essa pre
 ```bash
 python main.py --catalog-dir robot-results/systems --report relatorio.html
 ```
+
+A visão geral soma os cenários da execução mais recente de cada aplicação e
+mostra a evolução diária por 30, 90, 365 dias ou todo o período. Para gerar
+também um site com uma página por aplicação:
+
+```bash
+python main.py --catalog-dir robot-results/systems --report relatorio.html --site-dir /tmp/robot-report-site
+```
+
+O site inclui `index.html`, `systems/<id>.html`, `version.json` e
+`staticwebapp.config.json`. A página aberta verifica atualizações a cada
+60 segundos. Não coloque `--site-dir` dentro do catálogo.
+
+### Publicar no Azure Static Web Apps
+
+Crie um Azure Static Web App e instale o CLI `swa`
+(`npm install -g @azure/static-web-apps-cli`). Configure o token de implantação
+como segredo no ambiente da máquina que importa os resultados, na variável
+`ROBOT_REPORT_SWA_TOKEN`. Não grave o token no repositório. Cada importação
+bem-sucedida por `scripts/update_robot_results.py` ou pela interface local
+gera e publica o site automaticamente com `swa deploy`; sem token, a
+importação permanece apenas local. Uma falha de publicação não reverte a
+importação, e o site anterior continua disponível.
+
+O site exige a função `reader`: convide os usuários autorizados no Azure
+Static Web Apps e atribua essa função. O limite de convites individuais do
+serviço é 25 usuários. A geração continua local; o Azure hospeda apenas os
+arquivos estáticos. A interface local permite escolher uma aplicação para
+cada pasta do lote e migrar explicitamente um histórico antigo para uma
+aplicação nova, preservando o arquivo original.
 
 A geração é somente leitura: não acrescenta execuções nem altera a base.
 `--catalog-dir` não pode ser combinado com `--results-dir`, `--output-xml` ou

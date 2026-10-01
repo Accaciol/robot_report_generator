@@ -52,7 +52,8 @@ class TestCatalogBrowser(unittest.TestCase):
 
     def test_selection_history_filters_evidence_and_empty_state(self):
         from playwright.sync_api import expect
-        self.assertEqual(self.page.locator("#systemSelect").input_value(), "alpha")
+        self.assertEqual(self.page.locator("#systemSelect").input_value(), "")
+        self.page.locator("#systemSelect").select_option("alpha")
         alpha = self.frame("alpha")
         expect(alpha.locator("#metricFailed")).to_have_text("0")
         expect(alpha.locator("#versionSelectPo option")).to_have_count(2)
@@ -105,6 +106,7 @@ class TestCatalogBrowser(unittest.TestCase):
         self.catalog.remove("alpha", self.new_id)
         self.render()
         self.page.reload()
+        self.page.locator("#systemSelect").select_option("alpha")
         alpha = self.frame("alpha")
         expect(alpha.locator("#metricFailed")).to_have_text("1")
         expect(alpha.locator("#versionSelectPo option")).to_have_count(1)
@@ -116,5 +118,6 @@ class TestCatalogBrowser(unittest.TestCase):
         self.catalog.remove("alpha", self.old_id)
         self.render()
         self.page.reload()
+        self.page.locator("#systemSelect").select_option("alpha")
         expect(self.page.locator("#emptyState")).to_have_text("Nenhuma execução cadastrada para Alpha.")
         self.assertEqual(self.errors, [])
