@@ -100,7 +100,7 @@ class TestWebApp(unittest.TestCase):
         state = self.wait()
         self.assertEqual([i['status'] for i in state['items']], ['completed','failed','completed'])
         self.assertNotEqual(state['items'][0]['report'], state['items'][2]['report'])
-        self.assertEqual(len(json.loads((self.base / 'history.json').read_text())), 2)
+        self.assertEqual(len(json.loads((self.base / 'history.json').read_text())), 1)
         self.post('/api/session')
         ident = state['items'][0]['id']
         response = self.get('/reports/' + ident)

@@ -40,7 +40,8 @@ class TestHistoryManager(unittest.TestCase):
 
         # Append 7 entries when max_entries is 5
         for i in range(7):
-            history = self.manager.append(stats, suites=suites, execution_start="2026-09-10 10:00:00")
+            history = self.manager.append(stats, suites=suites, execution_start="2026-09-10 10:00:00",
+                                          execution_id=f"run-{i}")
             self.assertLessEqual(len(history), 5)
 
         self.assertEqual(len(history), 5)
@@ -49,6 +50,43 @@ class TestHistoryManager(unittest.TestCase):
         self.assertEqual(len(data), 5)
         self.assertEqual(data[-1]["passed"], 8)
         self.assertEqual(data[-1]["failed"], 2)
+
+    def test_reused_output_is_not_added_twice(self):
+        stats = ExecutionStats(total=1, passed=1)
+        suites = [SuiteResult(name="Suite", tests=[TestResult(name="Teste", status=Status.PASS)])]
+        first = self.manager.append(stats, suites, "2026-09-10 10:00:00", "xml-a")
+        repeated = self.manager.append(stats, suites, "2026-09-10 10:00:00", "xml-a")
+        self.assertEqual(len(repeated), 1)
+        self.assertEqual(repeated[0].version, first[0].version)
+        self.assertEqual(len(json.loads(self.history_file.read_text(encoding="utf-8"))), 1)
+        changed_xml = self.manager.append(stats, suites, "2026-09-10 10:00:00", "xml-b")
+        self.assertEqual(len(changed_xml), 2)
+
+    def test_legacy_duplicates_are_collapsed_and_reused_output_is_identified(self):
+        stats = ExecutionStats(total=1, passed=1)
+        suites = [SuiteResult(name="Suite", tests=[TestResult(name="Teste", status=Status.PASS)])]
+        first = self.manager.append(stats, suites, "2026-09-10 10:00:00")
+        raw = json.loads(self.history_file.read_text(encoding="utf-8"))
+        duplicate = dict(raw[0], version="2026-09-10 #2")
+        self.history_file.write_text(json.dumps([raw[0], duplicate]), encoding="utf-8")
+        self.assertEqual(len(self.manager.load()), 1)
+        history = self.manager.append(stats, suites, "2026-09-10 10:00:00", "xml-a")
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].version, first[0].version)
+        self.assertEqual(history[0].execution_id, "xml-a")
+        self.assertEqual(len(json.loads(self.history_file.read_text(encoding="utf-8"))), 1)
+
+    def test_remove_uses_visible_index_after_legacy_deduplication(self):
+        stats = ExecutionStats(total=1, passed=1)
+        self.manager.append(stats, execution_start="2026-09-10 10:00:00")
+        second = self.manager.append(stats, execution_start="2026-09-11 10:00:00")
+        raw = json.loads(self.history_file.read_text(encoding="utf-8"))
+        raw.insert(1, dict(raw[0], version="2026-09-10 #2"))
+        self.history_file.write_text(json.dumps(raw), encoding="utf-8")
+        self.assertEqual(len(self.manager.load()), 2)
+        self.manager.remove(1, second[-1].timestamp, second[-1].version)
+        remaining = json.loads(self.history_file.read_text(encoding="utf-8"))
+        self.assertEqual(remaining, [raw[0]])
 
     def test_timestamp_handling(self):
         now = datetime(2026, 9, 11, 14, 30, 0)

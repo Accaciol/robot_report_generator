@@ -6,6 +6,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import sys
@@ -111,19 +112,29 @@ def main() -> int:
 
     # 2. Histórico (persistência local)
     history_manager = HistoryManager(args.history)
+    digest = hashlib.sha256()
+    with output_xml.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    execution_id = digest.hexdigest()
     if args.no_history:
         history = history_manager.load()
         version = "sem histórico"
+        selected_history = history
     else:
         history = history_manager.append(
             stats,
             suites=suites,
             execution_start=xml_parser.execution_start,
+            execution_id=execution_id,
         )
-        version = history[-1].version if history else "sem versão"
+        selected_index = next(i for i, entry in enumerate(history)
+                              if entry.execution_id == execution_id)
+        version = history[selected_index].version
+        selected_history = history[: selected_index + 1]
 
-    flaky_tests = history_manager.detect_flaky_tests(history)
-    delta_stats = history_manager.compute_delta_stats(stats, history)
+    flaky_tests = history_manager.detect_flaky_tests(selected_history)
+    delta_stats = history_manager.compute_delta_stats(stats, selected_history)
 
     # 3. Apresentação (Jinja2 + Base64 -> HTML standalone)
     report_data = ReportData(
@@ -138,6 +149,7 @@ def main() -> int:
         flaky_tests=flaky_tests,
         delta_stats=delta_stats,
         issue_url_pattern=args.issue_url,
+        detailed_execution_id=execution_id if not args.no_history else None,
     )
     renderer = ReportRenderer(base_dir=artifact_dir, embed_artifacts=not args.no_embed_artifacts)
     out_path = renderer.render(report_data, args.report)

@@ -844,7 +844,7 @@
     var body = document.getElementById('versionTests');
     var summary = document.getElementById('versionSummary');
     var empty = document.getElementById('versionEmpty');
-    var currentVersion = history.length ? history.length - 1 : 0;
+    var currentVersion = {{ detailed_index }} >= 0 ? {{ detailed_index }} : (history.length ? history.length - 1 : 0);
     var detailedVersion = {{ detailed_index }};
     if (!selects.length || !history.length) { return; }
     var hiddenVersions = new Set();

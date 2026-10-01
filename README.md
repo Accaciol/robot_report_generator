@@ -72,6 +72,10 @@ robot-report --results-dir caminho/para/results
 | `--no-history` | `False` | Gera o relatório sem persistir nem atualizar o arquivo de histórico. |
 | `--no-embed-artifacts`| `False` | Não converte imagens em Base64, referenciando-as pelo caminho local relativo. |
 
+Gerar novamente a partir do mesmo `output.xml` cria outro HTML, mas não adiciona
+uma versão repetida ao histórico. Entradas antigas idênticas são exibidas uma única
+vez e consolidadas no arquivo de histórico na próxima geração.
+
 ### 2. Via interface web local
 
 Com as dependências instaladas, execute:
@@ -121,11 +125,11 @@ de pastas inicia na pasta pessoal e respeita as permissões do usuário do siste
 
 ---
 
-## Sistemas, histórico e Azure Pipelines
+## Sistemas e histórico
 
 O relatório consolidado tem um seletor de sistemas. Cada sistema possui seu próprio
-histórico, gráficos, comparações e evidências. O usuário final baixa um único HTML
-pelo artefato `robot-report` da pipeline e seleciona o sistema no cabeçalho.
+histórico, gráficos, comparações e evidências. Gere um único HTML com a opção
+`--catalog-dir` e selecione o sistema no cabeçalho.
 
 ### Importar resultados
 
@@ -178,14 +182,10 @@ com o comando acima e um novo commit. HTMLs já baixados não mudam. A opção *
 visíveis** apenas oculta resultados na visualização. No consolidado, essa preferência
 é mantida por sistema enquanto a página estiver aberta, inclusive ao trocar de sistema.
 
-### Gerar e publicar
+### Gerar o relatório consolidado
 
 ```bash
 python main.py --catalog-dir robot-results/systems --report relatorio.html
-# Após importar ou remover, inclua também as exclusões no commit:
-git add -A robot-results/systems
-git commit -m "Atualiza histórico dos sistemas"
-git push
 ```
 
 A geração é somente leitura: não acrescenta execuções nem altera a base.
@@ -194,23 +194,12 @@ A geração é somente leitura: não acrescenta execuções nem altera a base.
 continuam disponíveis. Neste modo, `--history` e `--no-history` não controlam a base:
 o histórico é sempre lido do catálogo, sem gravação.
 
-No Azure DevOps Services, cadastre **Pipelines → New pipeline → Existing Azure
-Pipelines YAML file**, selecionando `/azure-pipelines.yml`. Faça commit dos arquivos
-da implementação também no primeiro envio. Mudanças em `robot-results/systems/`
-na branch `main`, inclusive remoções, disparam a geração. Ajuste a branch no YAML
-se necessário. Mudanças somente no gerador podem ser validadas executando manualmente.
-
-A pipeline publica o consolidado e não faz commits automáticos. Testes Robot com
-status FAIL aparecem no relatório, sem falhar a pipeline por padrão. O uso opcional
-de `--fail-on-error` retorna código 1 quando a execução mais recente de algum sistema
+Testes Robot com status FAIL aparecem no relatório. O uso opcional de
+`--fail-on-error` retorna código 1 quando a execução mais recente de algum sistema
 tem falhas, mas ainda gera o HTML. Catálogo inválido ou XML atual alterado fora do
 importador interrompe a geração. Um catálogo vazio gera um HTML com estado vazio.
-
-Configure a limpeza dos builds e artefatos em **Project settings → Pipelines →
-Settings**, conforme a [retenção do Azure](https://learn.microsoft.com/en-us/azure/devops/pipelines/policies/retention?view=azure-devops).
-Artefatos de builds diferentes não se sobrescrevem. Os resumos sem limite e as versões
-antigas de imagens no Git continuam ocupando espaço; excluir arquivos da pasta atual
-não apaga o histórico do repositório.
+Os resumos não têm limite automático; versões antigas de imagens mantidas no Git
+continuam ocupando espaço no histórico do repositório.
 
 ### Migrar a entrada anterior
 
@@ -238,9 +227,6 @@ manualmente. Arquivos transitórios do catálogo padrão são ignorados pelo Git
 
 A CLI de sistema único (`--results-dir`) e a interface local continuam funcionando
 como antes. O gerenciamento de múltiplos sistemas nesta versão é feito pela CLI.
-
-Referências: [gatilhos por branch/caminho](https://learn.microsoft.com/en-us/azure/devops/pipelines/yaml-schema/trigger?view=azure-pipelines)
-e [publicação de artefatos](https://learn.microsoft.com/en-us/azure/devops/pipelines/artifacts/pipeline-artifacts?view=azure-devops).
 
 ---
 

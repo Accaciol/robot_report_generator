@@ -30,7 +30,7 @@ class HistoryManager:
             return []
         try:
             raw = json.loads(self.history_path.read_text(encoding="utf-8"))
-            return [HistoryEntry(**entry) for entry in raw]
+            return self._unique_entries([HistoryEntry(**entry) for entry in raw])
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             logger.warning(
                 "history.json corrompido ou em formato inesperado (%s). "
@@ -39,27 +39,70 @@ class HistoryManager:
             )
             return []
 
+    @staticmethod
+    def _signature(entry: HistoryEntry) -> str:
+        """Compare legacy entries without using their generated version labels."""
+        value = asdict(entry)
+        value.pop("version")
+        value.pop("execution_id")
+        return json.dumps(value, sort_keys=True, ensure_ascii=False)
+
+    @classmethod
+    def _unique_entries(cls, entries: list[HistoryEntry]) -> list[HistoryEntry]:
+        return [entries[index] for index in cls._unique_indices(entries)]
+
+    @classmethod
+    def _unique_indices(cls, entries: list[HistoryEntry]) -> list[int]:
+        unique = []
+        ids: set[str] = set()
+        legacy_signatures: set[str] = set()
+        for index, entry in enumerate(entries):
+            if entry.execution_id:
+                if entry.execution_id in ids:
+                    continue
+                ids.add(entry.execution_id)
+            else:
+                signature = cls._signature(entry)
+                if signature in legacy_signatures:
+                    continue
+                legacy_signatures.add(signature)
+            unique.append(index)
+        return unique
+
     def append(
         self,
         stats: ExecutionStats,
         suites: list[SuiteResult] | None = None,
         execution_start: str | None = None,
+        execution_id: str = "",
     ) -> list[HistoryEntry]:
-        """Adiciona a execução atual ao histórico, persiste e retorna a série completa."""
+        """Persiste apenas execuções novas e retorna a série sem duplicatas."""
         history = self.load()
-        version = self._version_label(execution_start, history)
         tests = self._test_snapshots(suites or [])
+        timestamp = self._timestamp(execution_start)
         entry = HistoryEntry(
-            timestamp=self._timestamp(execution_start),
+            timestamp=timestamp,
             total=stats.total,
             passed=stats.passed,
             failed=stats.failed,
             skipped=stats.skipped,
             elapsed_s=round(stats.elapsed_s, 2),
             pass_rate=stats.pass_rate,
-            version=version,
+            version="",
             tests=tests,
+            execution_id=execution_id,
         )
+        existing = next((item for item in history if execution_id and item.execution_id == execution_id), None)
+        if existing is None:
+            signature = self._signature(entry)
+            existing = next((item for item in history
+                             if not item.execution_id and self._signature(item) == signature), None)
+        if existing is not None:
+            if execution_id and not existing.execution_id:
+                existing.execution_id = execution_id
+            self._save(history)
+            return history
+        entry.version = self._version_label(timestamp, history)
         history.append(entry)
         history = history[-self.max_entries :]
         self._save(history)
@@ -73,7 +116,14 @@ class HistoryManager:
             raw = json.loads(self.history_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise ValueError("Não foi possível ler o arquivo de histórico.") from exc
-        if not isinstance(raw, list) or index >= len(raw) or not isinstance(raw[index], dict):
+        if not isinstance(raw, list):
+            raise ValueError("A versão selecionada não existe no histórico.")
+        try:
+            entries = [HistoryEntry(**entry) for entry in raw]
+            raw = [raw[i] for i in self._unique_indices(entries)]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Não foi possível ler o arquivo de histórico.") from exc
+        if index >= len(raw):
             raise ValueError("A versão selecionada não existe no histórico.")
         if raw[index].get("timestamp") != timestamp or raw[index].get("version", "") != version:
             raise ValueError("O histórico mudou. Recarregue a lista antes de remover.")
