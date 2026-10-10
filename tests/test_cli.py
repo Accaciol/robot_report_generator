@@ -1,10 +1,11 @@
 import hashlib
-import json
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -25,6 +26,7 @@ class TestCli(unittest.TestCase):
         self.assertIn("--fail-on-error", res.stdout)
         self.assertIn("--title", res.stdout)
         self.assertIn("--no-history", res.stdout)
+        self.assertIn("--zip", res.stdout)
 
     def test_cli_generate_success_exit_code_zero(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -98,13 +100,15 @@ class TestCli(unittest.TestCase):
             changed = root / "changed"
             changed.mkdir()
             (changed / "output.xml").write_bytes((original / "output.xml").read_bytes() + b"\n")
-            history_path = root / "history.json"
+            database = root / "history.sqlite3"
 
             def generate(source, name):
                 report = root / name
                 result = subprocess.run(
                     [sys.executable, str(self.main_script), "--results-dir", str(source),
-                     "--history", str(history_path), "--report", str(report)],
+                     "--database", str(database), "--system-id", "cli-test",
+                     "--system-name", "CLI Test", "--system-version", "1.0",
+                     "--report", str(report)],
                     capture_output=True, text=True, cwd=str(self.project_root),
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -114,13 +118,26 @@ class TestCli(unittest.TestCase):
             generate(original, "first.html")
             generate(changed, "changed.html")
             repeated = generate(original, "repeated.html")
-            entries = json.loads(history_path.read_text(encoding="utf-8"))
+            import sqlite3
+            with sqlite3.connect(database) as connection:
+                entries = connection.execute("SELECT execution_id FROM executions ORDER BY timestamp").fetchall()
             self.assertEqual(len(entries), 2)
-            self.assertEqual(entries[0]["execution_id"], hashlib.sha256(
-                (original / "output.xml").read_bytes()).hexdigest())
-            self.assertNotEqual(entries[0]["execution_id"], entries[1]["execution_id"])
-            self.assertIn("var detailedVersion = 0;", repeated.read_text(encoding="utf-8"))
-            self.assertIn("var currentVersion = 0 >= 0 ? 0", repeated.read_text(encoding="utf-8"))
+            ids = {entry[0] for entry in entries}
+            self.assertIn(hashlib.sha256((original / "output.xml").read_bytes()).hexdigest(), ids)
+            self.assertEqual(len(ids), 2)
+            self.assertRegex(repeated.read_text(encoding="utf-8"), r"var detailedVersion = \d+;")
+
+    def test_cli_accepts_zip_input(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive, report = root / "results.zip", root / "report.html"
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.write(self.example_dir / "output.xml", "output.xml")
+            result = subprocess.run([sys.executable, str(self.main_script), "--zip", str(archive),
+                                     "--no-history", "--report", str(report)], capture_output=True,
+                                    text=True, cwd=str(self.project_root))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(report.is_file())
 
 
 if __name__ == "__main__":

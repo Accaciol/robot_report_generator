@@ -1,21 +1,21 @@
-"""Ponto de entrada: gera relatorio.html a partir de output.xml.
-
-Uso:
-    python main.py --results-dir results --history history.json --report relatorio.html
-"""
+"""Generate a standalone Robot Framework report from an output.xml file."""
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import hashlib
 import json
 import logging
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
 from core.history_manager import HistoryManager
+from core.import_service import ImportService, extract_archive
 from core.pdf_summary import build_summary
 from core.report_renderer import ReportRenderer
+from core.sqlite_store import SQLiteStore, default_database_path
 from core.xml_parser import RobotOutputParser
 from models import ReportData
 
@@ -27,62 +27,68 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Gerador de relatório customizado para Robot Framework (BDD + BrowserLibrary)."
     )
-    parser.add_argument("--catalog-dir", help="Catálogo de sistemas; gera HTML consolidado sem alterar o histórico")
-    parser.add_argument("--site-dir", help="Gera também um site estático para publicação (requer --catalog-dir)")
-    parser.add_argument(
-        "--output-xml",
-        help="Caminho para o output.xml do Robot; por padrão, procura dentro de --results-dir",
-    )
-    parser.add_argument(
-        "--results-dir",
-        help="Pasta de resultados que contém output.xml e os artefatos browser/screenshot",
-    )
-    parser.add_argument("--history", default="history.json", help="Caminho para o arquivo de histórico")
+    parser.add_argument("--database", type=Path, default=default_database_path(),
+                        help="Banco SQLite de históricos e catálogo")
+    parser.add_argument("--catalog-report", action="store_true",
+                        help="Gera o relatório consolidado a partir do banco SQLite")
+    parser.add_argument("--site-dir", help="Gera também um site estático do catálogo (requer --catalog-report)")
+    parser.add_argument("--output-xml", help="Caminho explícito para output.xml")
+    parser.add_argument("--results-dir", help="Pasta que contém output.xml e evidências")
+    parser.add_argument("--zip", dest="input_zip", type=Path,
+                        help="Arquivo ZIP com output.xml na raiz e evidências")
     parser.add_argument("--report", default="relatorio.html", help="Caminho do relatório HTML final")
     parser.add_argument("--summary-json", help=argparse.SUPPRESS)
-    parser.add_argument(
-        "--title",
-        default="Relatório de Execução — Testes BDD",
-        help="Título exibido no cabeçalho e na aba do relatório",
-    )
-    parser.add_argument(
-        "--fail-on-error",
-        action="store_true",
-        help="Encerra com código 1 caso existam testes que falharam (ideal para CI/CD)",
-    )
-    parser.add_argument(
-        "--no-history",
-        action="store_true",
-        help="Gera o relatório sem atualizar nem persistir o arquivo de histórico",
-    )
-    parser.add_argument(
-        "--no-embed-artifacts",
-        action="store_true",
-        help="Não converte imagens em Base64, referenciando-as pelo caminho de arquivo",
-    )
-    parser.add_argument(
-        "--issue-url",
-        default="",
-        help="Padrão de URL de tickets/tarefas (ex.: 'https://jira.empresa.com/browse/{id}') para gerar links em tags",
-    )
+    parser.add_argument("--system-id", default="robot-tests", help="Identificador do sistema no catálogo")
+    parser.add_argument("--system-name", default="Robot Tests", help="Nome exibido do sistema")
+    parser.add_argument("--system-version", default="não informada", help="Versão do produto testado")
+    parser.add_argument("--execution-date", help="Data/hora ISO da execução; por padrão, usa o output.xml")
+    parser.add_argument("--archive-zip", help=argparse.SUPPRESS)
+    parser.add_argument("--title", default="Relatório de Execução — Testes BDD",
+                        help="Título exibido no cabeçalho e na aba do relatório")
+    parser.add_argument("--fail-on-error", action="store_true",
+                        help="Encerra com código 1 se existirem testes com falha")
+    parser.add_argument("--no-history", action="store_true",
+                        help="Gera o relatório sem adicionar a execução ao SQLite")
+    parser.add_argument("--no-report", action="store_true",
+                        help="Importa a execução sem renderizar um arquivo HTML")
+    parser.add_argument("--no-embed-artifacts", action="store_true",
+                        help="Não converte imagens em Base64")
+    parser.add_argument("--issue-url", default="",
+                        help="Padrão de URL de tickets (ex.: https://jira/browse/{id})")
     args = parser.parse_args()
-    if args.catalog_dir and (args.results_dir or args.output_xml or args.no_embed_artifacts):
-        parser.error("--catalog-dir não aceita --results-dir, --output-xml ou --no-embed-artifacts")
-    if args.site_dir and not args.catalog_dir:
-        parser.error("--site-dir requer --catalog-dir")
+    if args.catalog_report and (args.results_dir or args.input_zip or args.output_xml or args.archive_zip):
+        parser.error("--catalog-report não aceita entradas de execução")
+    if args.site_dir and not args.catalog_report:
+        parser.error("--site-dir requer --catalog-report")
+    if args.catalog_report and args.no_history:
+        parser.error("--catalog-report não aceita --no-history")
+    if args.no_report and args.no_history:
+        parser.error("--no-report requer o armazenamento da execução no SQLite")
+    if args.results_dir and args.input_zip:
+        parser.error("Use --results-dir ou --zip, não ambos")
+    if args.input_zip and args.output_xml:
+        parser.error("--output-xml não pode ser combinado com --zip")
     return args
 
 
-def main() -> int:
-    args = parse_args()
+def _history_for_report(store: SQLiteStore, system_id: str) -> list:
+    try:
+        return store.history(system_id)
+    except ValueError:
+        return []
 
-    if args.catalog_dir:
+
+def _run(args: argparse.Namespace) -> int:
+    database = Path(args.database).expanduser().resolve()
+    store = SQLiteStore(database)
+
+    if args.catalog_report:
         from core.catalog_report import render_catalog, render_site
         try:
-            failed = render_catalog(args.catalog_dir, args.report, args.title, args.issue_url)
+            failed = render_catalog(str(database), args.report, args.title, args.issue_url)
             if args.site_dir:
-                failed = render_site(args.catalog_dir, args.site_dir, args.title, args.issue_url) or failed
-        except (OSError, ValueError, TypeError) as exc:
+                failed = render_site(str(database), args.site_dir, args.title, args.issue_url) or failed
+        except (OSError, ValueError, TypeError, RuntimeError) as exc:
             logger.error("Não foi possível gerar o catálogo: %s", exc)
             return 1
         logger.info("Relatório consolidado gerado em: %s", args.report)
@@ -92,86 +98,86 @@ def main() -> int:
     if results_dir is not None and not results_dir.is_dir():
         logger.error("Pasta de resultados não encontrada: %s", results_dir)
         return 1
-
-    output_xml = (
-        Path(args.output_xml).expanduser().resolve()
-        if args.output_xml
-        else (results_dir / "output.xml" if results_dir else Path("output.xml").resolve())
-    )
+    output_xml = (Path(args.output_xml).expanduser().resolve() if args.output_xml
+                  else (results_dir / "output.xml" if results_dir else Path("output.xml").resolve()))
     if not output_xml.is_file():
         logger.error("Arquivo output.xml não encontrado: %s", output_xml)
         return 1
     artifact_dir = results_dir or output_xml.parent
 
-    # 1. Extração (única fonte de dados: output.xml)
-    xml_parser = RobotOutputParser(str(output_xml))
+    parser = RobotOutputParser(str(output_xml))
     try:
-        suites, stats = xml_parser.parse()
+        suites, stats = parser.parse()
     except (FileNotFoundError, ValueError) as exc:
         logger.error("Não foi possível gerar o relatório: %s", exc)
         return 1
+    for error in parser.errors:
+        logger.warning("Aviso de parsing (não fatal): %s", error)
 
-    if xml_parser.errors:
-        for err in xml_parser.errors:
-            logger.warning("Aviso de parsing (não fatal): %s", err)
+    digest = hashlib.sha256(output_xml.read_bytes()).hexdigest()
+    history = _history_for_report(store, args.system_id)
+    selected_version = "sem histórico"
+    selected_history = history
+    system_version = args.system_version
+    execution_id = digest
+    if not args.no_history:
+        try:
+            source = results_dir or output_xml.parent
+            imported = ImportService(database).import_source(
+                source, args.system_id, args.system_name, args.system_version,
+                args.execution_date, archive_source=args.archive_zip,
+                output_xml=output_xml if args.output_xml else None)
+            execution_id = imported["execution_id"]
+            history = imported["history"]
+            index = next(i for i, entry in enumerate(history) if entry.execution_id == execution_id)
+            selected_entry = history[index]
+            selected_version = selected_entry.version
+            system_version = selected_entry.system_version
+            selected_history = history[:index + 1]
+            if not imported["inserted"]:
+                logger.info("Execução já cadastrada para o sistema %s; histórico preservado.", args.system_id)
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.error("Não foi possível armazenar a execução no SQLite: %s", exc)
+            return 1
 
-    # 2. Histórico (persistência local)
-    history_manager = HistoryManager(args.history)
-    digest = hashlib.sha256()
-    with output_xml.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    execution_id = digest.hexdigest()
-    if args.no_history:
-        history = history_manager.load()
-        version = "sem histórico"
-        selected_history = history
-    else:
-        history = history_manager.append(
-            stats,
-            suites=suites,
-            execution_start=xml_parser.execution_start,
-            execution_id=execution_id,
-        )
-        selected_index = next(i for i, entry in enumerate(history)
-                              if entry.execution_id == execution_id)
-        version = history[selected_index].version
-        selected_history = history[: selected_index + 1]
+    if args.no_report:
+        logger.info("Execução armazenada no SQLite sem gerar arquivo HTML.")
+        return 1 if args.fail_on_error and stats.failed > 0 else 0
 
-    flaky_tests = history_manager.detect_flaky_tests(selected_history)
-    delta_stats = history_manager.compute_delta_stats(stats, selected_history)
-
-    # 3. Apresentação (Jinja2 + Base64 -> HTML standalone)
     report_data = ReportData(
-        title=args.title,
-        stats=stats,
-        suites=suites,
-        history=history,
+        title=args.title, stats=stats, suites=suites, history=history,
         generated_at=datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        errors=xml_parser.errors,
-        version=version,
-        environment=xml_parser.environment,
-        flaky_tests=flaky_tests,
-        delta_stats=delta_stats,
+        errors=parser.errors, version=selected_version, system_version=system_version,
+        environment=parser.environment,
+        flaky_tests=HistoryManager.detect_flaky_tests(selected_history),
+        delta_stats=HistoryManager.compute_delta_stats(stats, selected_history),
         issue_url_pattern=args.issue_url,
         detailed_execution_id=execution_id if not args.no_history else None,
     )
-    renderer = ReportRenderer(base_dir=artifact_dir, embed_artifacts=not args.no_embed_artifacts)
-    out_path = renderer.render(report_data, args.report)
+    out_path = ReportRenderer(base_dir=artifact_dir,
+                              embed_artifacts=not args.no_embed_artifacts).render(report_data, args.report)
     if args.summary_json:
         Path(args.summary_json).write_text(json.dumps(build_summary(report_data), ensure_ascii=False),
                                            encoding="utf-8")
+    logger.info("Relatório gerado em: %s (Total=%d, Pass=%d, Fail=%d, Skip=%d, Taxa=%.1f%%)",
+                out_path, stats.total, stats.passed, stats.failed, stats.skipped, stats.pass_rate)
+    return 1 if args.fail_on_error and stats.failed > 0 else 0
 
-    logger.info(
-        "Relatório gerado em: %s (Total=%d, Pass=%d, Fail=%d, Skip=%d, Taxa=%.1f%%)",
-        out_path,
-        stats.total,
-        stats.passed,
-        stats.failed,
-        stats.skipped,
-        stats.pass_rate,
-    )
-    return 1 if (args.fail_on_error and stats.failed > 0) else 0
+
+def main() -> int:
+    args = parse_args()
+    if not args.input_zip:
+        return _run(args)
+    with tempfile.TemporaryDirectory(prefix="robot-report-cli-") as temporary:
+        results_dir = Path(temporary) / "results"
+        try:
+            extract_archive(args.input_zip.expanduser().resolve(), results_dir)
+        except (OSError, ValueError) as exc:
+            logger.error("Não foi possível abrir o ZIP: %s", exc)
+            return 1
+        args.results_dir = str(results_dir)
+        args.archive_zip = str(args.input_zip.expanduser().resolve())
+        return _run(args)
 
 
 if __name__ == "__main__":

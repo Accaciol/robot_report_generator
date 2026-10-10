@@ -138,7 +138,7 @@ class TestWebApp(unittest.TestCase):
 
     def test_destination_without_permission(self):
         folder = self.folder('results')
-        with patch('core.web_app.tempfile.TemporaryFile', side_effect=PermissionError('Sem permissão')):
+        with patch('core.web_services.tempfile.TemporaryFile', side_effect=PermissionError('Sem permissão')):
             response = self.start([folder])
         self.assertEqual(response.status_code, 400)
         self.assertFalse(self.jobs.active)

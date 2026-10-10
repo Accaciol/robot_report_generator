@@ -64,6 +64,10 @@ class ReportRenderer:
             if artifact.original_path.startswith(("http://", "https://", "data:")):
                 continue
             file_path = (self.base_dir / artifact.original_path).resolve()
+            if file_path != self.base_dir and self.base_dir not in file_path.parents:
+                logger.warning("Artefato fora da pasta de resultados: %s", artifact.original_path)
+                artifact.missing = True
+                continue
             if not file_path.exists():
                 logger.debug("Artefato de imagem não encontrado: %s", file_path)
                 artifact.missing = True
@@ -113,7 +117,7 @@ class ReportRenderer:
         return "cdn", _CHART_JS_CDN_URL
 
     # ---- API pública --------------------------------------------------
-    def render_html(self, data: ReportData) -> str:
+    def render_html(self, data: ReportData, main_max_width: int = 1240) -> str:
         self._embed_artifacts(data.suites)
         chart_js_mode, chart_js_content = self._load_chart_js()
         template = self.env.get_template(self.template_name)
@@ -127,6 +131,7 @@ class ReportRenderer:
             suites=data.suites,
             history=[asdict(h) for h in data.history],  # dataclass -> dict p/ o filtro |tojson
             version=data.version,
+            system_version=data.system_version,
             generated_at=data.generated_at,
             errors=data.errors,
             environment=data.environment,
@@ -136,6 +141,7 @@ class ReportRenderer:
             chart_js_mode=chart_js_mode,
             chart_js_content=chart_js_content,
             detailed_index=detailed_index,
+            main_max_width=max(900, min(int(main_max_width), 2400)),
         )
 
     def render(self, data: ReportData, output_path: str) -> Path:

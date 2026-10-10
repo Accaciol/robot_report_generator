@@ -35,12 +35,13 @@
 
 **Concluído quando:** consultas por período não exigirem ler todo o histórico, e a política de retenção for explícita, testada e documentada.
 
-## Etapa 4 — Consulta e distribuição
+## Etapa 4 — Consulta, distribuição e containerização (Docker)
 
 1. Carregar sistemas, períodos e detalhes sob demanda na interface, com paginação. Manter a exportação de HTML portátil para um recorte escolhido.
-2. Considerar PostgreSQL somente se houver uso simultâneo por equipes, serviço hospedado ou volume que exceda as metas medidas com SQLite. Nessa situação, avaliar particionamento por data e armazenamento externo de evidências.
+2. Disponibilizar a aplicação empacotada em container Docker (`Dockerfile` e `docker-compose.yml`), permitindo executar tanto a interface web (Flask) quanto os scripts de geração em lote de relatórios sem dependência do ambiente hospedeiro ou de nuvem proprietária (Azure).
+3. Considerar PostgreSQL somente se houver uso simultâneo por equipes, serviço hospedado ou volume que exceda as metas medidas com SQLite. Nessa situação, o container do banco pode ser orquestrado diretamente via compose.
 
-**Concluído quando:** a interface continuar responsiva com a maior base de referência e o HTML exportado abrir sem carregar dados fora do período selecionado.
+**Concluído quando:** a aplicação puder ser inicializada de forma reproduzível via Docker, a interface continuar responsiva com a maior base de referência e o HTML exportado abrir sem carregar dados fora do período selecionado.
 
 ## Ordem de decisão
 

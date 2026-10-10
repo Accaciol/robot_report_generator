@@ -1,50 +1,55 @@
-"""Rotas autenticadas da interface local."""
+"""Authenticated local web interface."""
 from __future__ import annotations
 
 import hmac
-import os
 import secrets
+import shutil
 import tempfile
 import threading
-import traceback
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, render_template, request, send_file
+from flask import Flask, abort, jsonify, render_template, request, Response, send_file
 
-from core.azure_publish import publish_if_configured
-from core.catalog import Catalog
-from core.catalog_overview import overview
-from core.history_manager import HistoryManager
-from core.pdf_summary import render_pdf
+from core.import_service import ImportService, _configured_limit, DEFAULT_MAX_UPLOAD_BYTES
+from core.catalog_overview import PERIODS, overview as build_overview
+from core.database_admin import (cleanup_orphaned_artifacts as remove_orphans,
+                                 create_full_backup, orphaned_artifacts, restore_full_backup)
+from core.report_renderer import ReportRenderer
+from core.sqlite_store import SQLiteStore, default_database_path
 from core.web_jobs import JobManager
+from core.web_services import (catalog_overview, catalog_systems, list_history,
+                               remove_history)
 
 
-def _path(value):
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("Informe um caminho válido.")
-    return Path(value).expanduser().resolve()
-
-
-def _writable_directory(path):
-    if not path.is_dir():
-        raise ValueError(f"Pasta não encontrada: {path}")
-    with tempfile.TemporaryFile(dir=path):
-        pass
-
-
-def create_app():
+def create_app(config: dict | None = None):
     app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
-    app.config.update(SESSION_TOKEN=secrets.token_urlsafe(32), LOCAL_ORIGIN="http://127.0.0.1:5000",
-                      MAX_CONTENT_LENGTH=1024 * 1024, STOP_SERVER=lambda: None,
-                      CATALOG_DIR=Path(__file__).resolve().parent.parent / "robot-results" / "systems")
+    if config:
+        app.config.update(config)
+    database = Path(app.config.get("DATABASE", default_database_path()))
+    app.config.update(SESSION_TOKEN=secrets.token_urlsafe(32),
+                      LOCAL_ORIGIN="http://127.0.0.1:5000", DATABASE=database,
+                      MAX_CONTENT_LENGTH=_configured_limit("ROBOT_REPORT_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES)
+                      + 1024 * 1024)
+    # Full database backups can include artifacts from multiple systems and be
+    # larger than the limit for a single uploaded results ZIP.
+    app.config["MAX_CONTENT_LENGTH"] = max(app.config["MAX_CONTENT_LENGTH"],
+                                            2 * 1024 * 1024 * 1024 + 1024 * 1024)
     jobs = JobManager()
+    imports = ImportService(database)
     app.extensions["jobs"] = jobs
+    app.extensions["imports"] = imports
 
     def valid_token(value):
-        return hmac.compare_digest((value or "").encode("utf-8"), app.config["SESSION_TOKEN"].encode("utf-8"))
+        return hmac.compare_digest((value or "").encode(), app.config["SESSION_TOKEN"].encode())
 
     @app.before_request
     def protect():
+        public_path = (request.path == "/public" or request.path.startswith("/public/")
+                       or request.path in ("/static/public_catalog.js", "/static/public_catalog.css"))
+        if public_path:
+            if request.method not in ("GET", "HEAD"):
+                abort(405)
+            return
         origin = app.config["LOCAL_ORIGIN"]
         if request.host_url.rstrip("/") != origin:
             abort(403)
@@ -57,21 +62,20 @@ def create_app():
                 abort(403)
             if request.method == "POST" and request.headers.get("Origin") != origin:
                 abort(403)
-        elif request.path.startswith("/reports/"):
-            if not valid_token(request.cookies.get("robot_session")):
-                abort(403)
+        elif request.path.startswith("/reports/") and not valid_token(request.cookies.get("robot_session")):
+            abort(403)
 
     @app.after_request
     def headers(response):
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["X-Frame-Options"] = "DENY"
-        if request.path.startswith("/reports/"):
-            # Generated HTML may contain scripts. Isolate it from the local API.
-            response.headers["Content-Security-Policy"] = "sandbox allow-scripts allow-downloads allow-popups"
-        else:
-            response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        response.headers["X-Frame-Options"] = (
+            "SAMEORIGIN" if request.path.startswith("/public/reports/") else "DENY")
+        response.headers["Content-Security-Policy"] = (
+            "sandbox allow-scripts allow-downloads allow-popups"
+            if request.path.startswith(("/reports/", "/public/reports/"))
+            else "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
         return response
 
     @app.errorhandler(403)
@@ -82,28 +86,49 @@ def create_app():
     def bad_request(error):
         return jsonify(error="Requisição inválida."), 400
 
+    @app.errorhandler(413)
+    def too_large(error):
+        return jsonify(error="O ZIP excede o limite de upload configurado."), 413
+
     @app.route("/")
     def index():
         return render_template("index.html")
 
+    @app.get("/public")
+    def public_catalog():
+        return render_template("public_catalog.html", title="Relatórios Robot Framework")
+
+    @app.get("/public/api/systems")
+    def public_systems():
+        entries = SQLiteStore(Path(app.config["DATABASE"])).systems()
+        return jsonify(systems=[{"id": metadata["id"], "name": metadata["name"],
+                                "executions": len(history),
+                                "system_version": history[-1].system_version if history else ""}
+                               for metadata, history, _ in entries if history])
+
+    @app.get("/public/api/overview")
+    def public_overview():
+        period = request.args.get("period", "30")
+        if period not in PERIODS:
+            return jsonify(error="Período inválido."), 400
+        entries = SQLiteStore(Path(app.config["DATABASE"])).systems()
+        return jsonify(build_overview(entries, period))
+
+    @app.get("/public/reports/<system_id>")
+    def public_report(system_id):
+        store = SQLiteStore(Path(app.config["DATABASE"]))
+        try:
+            metadata, history, directory = store.load(system_id)
+            data = store.report_data(metadata, history, directory,
+                                     "Relatório de Execução — Testes BDD")
+            html = ReportRenderer(directory / "results").render_html(data, main_max_width=1760)
+        except ValueError as exc:
+            abort(404, description=str(exc))
+        return Response(html, mimetype="text/html", headers={"Cache-Control": "no-store"})
+
     @app.post("/api/session")
     def session():
-        response = jsonify(home=str(Path.home()), destination=str(Path.home()),
-                           history=str(Path.home() / "robot-report-history.json"))
-        response.set_cookie("robot_session", app.config["SESSION_TOKEN"], httponly=True,
-                            samesite="Strict", path="/reports/")
-        return response
-
-    @app.get("/api/folders")
-    def folders():
-        try:
-            path = _path(request.args.get("path", str(Path.home())))
-            children = sorted((p for p in path.iterdir() if p.is_dir()), key=lambda p: p.name.casefold())
-            return jsonify(path=str(path), parent=str(path.parent),
-                           has_output=(path / "output.xml").is_file(),
-                           folders=[dict(name=p.name, path=str(p)) for p in children])
-        except (OSError, ValueError) as exc:
-            return jsonify(error=f"Não foi possível abrir a pasta: {exc}"), 400
+        return jsonify(database=str(app.config["DATABASE"]))
 
     @app.get("/api/state")
     def state():
@@ -111,59 +136,16 @@ def create_app():
 
     @app.get("/api/systems")
     def systems():
-        try:
-            root = Path(app.config["CATALOG_DIR"])
-            entries = Catalog(root).systems() if root.is_dir() else []
-            return jsonify(systems=[{"id": meta["id"], "name": meta["name"],
-                                    "executions": len(history)} for meta, history, _ in entries])
-        except (OSError, ValueError) as exc:
-            return jsonify(error=str(exc)), 400
+        return jsonify(systems=catalog_systems(Path(app.config["DATABASE"])))
 
     @app.get("/api/overview")
-    def catalog_overview():
-        try:
-            root = Path(app.config["CATALOG_DIR"])
-            entries = Catalog(root).systems() if root.is_dir() else []
-            return jsonify(overview(entries, request.args.get("period", "30")))
-        except (OSError, ValueError) as exc:
-            return jsonify(error=str(exc)), 400
-
-    @app.post("/api/catalog/migrate")
-    def migrate_catalog():
-        data = request.get_json()
-        if not isinstance(data, dict):
-            abort(400)
-        try:
-            with jobs.lock:
-                if jobs.active or jobs.closing:
-                    return jsonify(error="Aguarde a geração terminar antes de migrar."), 409
-                system_id = data.get("system_id")
-                Catalog.validate_id(system_id)
-                source = _path(data.get("source"))
-                history = _path(data.get("history"))
-                if not history.is_file():
-                    raise ValueError("Arquivo de histórico não encontrado.")
-                execution_id = Catalog(app.config["CATALOG_DIR"]).import_results(
-                    source, system_id, data.get("name"), history)
-            warning = None
-            try:
-                publish_if_configured(app.config["CATALOG_DIR"])
-            except (OSError, RuntimeError, ValueError) as exc:
-                warning = f"Migração concluída; publicação falhou: {exc}"
-                jobs.record_error(jobs.run_id, source, warning, [str(exc)])
-            return jsonify(execution_id=execution_id, warning=warning)
-        except (OSError, ValueError, TypeError) as exc:
-            return jsonify(error=str(exc)), 400
+    def overview():
+        return jsonify(catalog_overview(Path(app.config["DATABASE"]), request.args.get("period", "30")))
 
     @app.get("/api/history")
     def history_entries():
         try:
-            path = _path(request.args.get("path"))
-            entries = HistoryManager(path).load()
-            return jsonify(entries=[dict(index=index, timestamp=entry.timestamp,
-                                         version=entry.version, total=entry.total,
-                                         pass_rate=entry.pass_rate)
-                                    for index, entry in enumerate(entries)])
+            return jsonify(entries=list_history(Path(app.config["DATABASE"]), request.args.get("system_id", "")))
         except (OSError, ValueError) as exc:
             return jsonify(error=str(exc)), 400
 
@@ -173,56 +155,108 @@ def create_app():
         if not isinstance(data, dict):
             abort(400)
         try:
-            path = _path(data.get("path"))
-            if not isinstance(data.get("timestamp"), str) or not isinstance(data.get("version"), str):
-                raise ValueError("Selecione uma versão válida.")
             with jobs.lock:
                 if jobs.active or jobs.closing:
-                    return jsonify(error="Aguarde a geração terminar antes de remover uma versão."), 409
-                HistoryManager(path).remove(data.get("index"), data["timestamp"], data["version"])
+                    return jsonify(error="Aguarde a geração terminar antes de remover uma execução."), 409
+                remove_history(Path(app.config["DATABASE"]), data.get("system_id"), data.get("execution_id"))
             return jsonify(ok=True)
+        except (OSError, ValueError, TypeError) as exc:
+            return jsonify(error=str(exc)), 400
+
+    @app.get("/api/database/backup")
+    def download_database_backup():
+        with jobs.lock:
+            if jobs.active or jobs.closing or imports.pending:
+                return jsonify(error="Aguarde o fim das importações antes de gerar um backup completo."), 409
+        temporary = tempfile.TemporaryDirectory(prefix="robot-report-backup-")
+        directory = Path(temporary.name)
+        backup_path = directory / "robot-report-backup.zip"
+        try:
+            create_full_backup(Path(app.config["DATABASE"]), backup_path)
+            response = send_file(backup_path, as_attachment=True,
+                                download_name="robot-report-backup.zip", mimetype="application/zip")
+            response.call_on_close(temporary.cleanup)
+            return response
+        except Exception:
+            temporary.cleanup()
+            raise
+
+    @app.post("/api/database/restore")
+    def restore_database_backup():
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            return jsonify(error="Selecione um pacote de backup ZIP."), 400
+        with jobs.lock:
+            if jobs.active or jobs.closing or imports.pending:
+                return jsonify(error="Finalize ou descarte importações pendentes antes de restaurar o banco."), 409
+            staging = Path(tempfile.mkdtemp(prefix=".restore-upload-"))
+            try:
+                archive_path = staging / "upload.zip"
+                upload.save(archive_path)
+                restored_systems = restore_full_backup(Path(app.config["DATABASE"]), archive_path)
+            except (OSError, ValueError) as exc:
+                return jsonify(error=str(exc)), 400
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
+        return jsonify(ok=True, systems=restored_systems)
+
+    @app.get("/api/artifacts/orphans")
+    def list_orphaned_artifacts():
+        paths = orphaned_artifacts(Path(app.config["DATABASE"]))
+        return jsonify(count=len(paths), paths=paths)
+
+    @app.post("/api/artifacts/cleanup")
+    def cleanup_orphaned_artifacts():
+        with jobs.lock:
+            if jobs.active or jobs.closing or imports.pending:
+                return jsonify(error="Finalize importações antes de limpar arquivos órfãos."), 409
+            paths = remove_orphans(Path(app.config["DATABASE"]))
+        return jsonify(removed=len(paths), paths=paths)
+
+    @app.post("/api/imports/preview")
+    def preview_import():
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            return jsonify(error="Selecione um arquivo ZIP."), 400
+        try:
+            return jsonify(imports.prepare_upload(upload.stream, upload.filename))
         except (OSError, ValueError) as exc:
             return jsonify(error=str(exc)), 400
 
-    @app.post("/api/runs")
-    def start():
+    @app.post("/api/imports")
+    def commit_import():
         data = request.get_json()
+        if not isinstance(data, dict):
+            abort(400)
         try:
-            if not isinstance(data, dict) or not isinstance(data.get("folders"), list) or not data["folders"]:
-                raise ValueError("Adicione pelo menos uma pasta de resultados.")
-            sources = []
-            seen = set()
-            for source in data["folders"]:
-                if isinstance(source, dict):
-                    path = _path(source.get("path"))
-                    system_id = source.get("system_id")
-                    Catalog.validate_id(system_id)
-                    name = source.get("name")
-                    if name is not None and (not isinstance(name, str) or not name.strip()):
-                        raise ValueError("Nome da aplicação inválido.")
-                    entry = {"path": path, "system_id": system_id, "name": name}
-                else:
-                    path = _path(source)
-                    entry = path
-                if path not in seen:
-                    sources.append(entry)
-                    seen.add(path)
-            for entry in sources:
-                path = entry["path"] if isinstance(entry, dict) else entry
-                if not (path / "output.xml").is_file():
-                    raise ValueError(f"output.xml não encontrado em: {path}")
-            destination = _path(data.get("destination"))
-            history = _path(data.get("history"))
-            _writable_directory(destination)
-            _writable_directory(history.parent)
-            if history.exists() and (not history.is_file() or not os.access(history, os.W_OK)):
-                raise ValueError("O arquivo de histórico não permite escrita.")
-            return jsonify(run_id=jobs.start(sources, destination, history,
-                                             str(app.config["CATALOG_DIR"]))), 202
-        except (ValueError, OSError, TypeError) as exc:
-            return jsonify(error=str(exc)), 400
+            system_id, name, version = data.get("system_id"), data.get("system_name"), data.get("system_version")
+            from core.sqlite_store import SQLiteStore
+            SQLiteStore.validate_system_id(system_id)
+            if not isinstance(name, str) or not name.strip() or not isinstance(version, str) or not version.strip():
+                raise ValueError("Informe o nome do sistema e a versão do produto.")
+            execution_date = data.get("execution_date")
+            if not execution_date:
+                raise ValueError("Informe a data e hora da execução.")
+            prepared = imports.consume_upload(data.get("upload_id", ""))
+            source = {"path": prepared.results_dir, "archive_path": prepared.archive,
+                     "cleanup_dir": prepared.stage_dir, "system_id": system_id,
+                     "name": name.strip(), "system_version": version.strip(),
+                     "execution_date": execution_date}
+            with jobs.lock:
+                if jobs.active or jobs.closing:
+                    raise RuntimeError("Já existe uma geração ativa ou o servidor está encerrando.")
+                run_id = jobs.start([source], Path(app.config["DATABASE"]))
+            return jsonify(run_id=run_id), 202
         except RuntimeError as exc:
+            if 'prepared' in locals():
+                import shutil
+                shutil.rmtree(prepared.stage_dir, ignore_errors=True)
             return jsonify(error=str(exc)), 409
+        except (OSError, ValueError, TypeError) as exc:
+            if 'prepared' in locals():
+                import shutil
+                shutil.rmtree(prepared.stage_dir, ignore_errors=True)
+            return jsonify(error=str(exc)), 400
 
     @app.post("/api/cancel")
     def cancel():
@@ -235,38 +269,13 @@ def create_app():
         except RuntimeError as exc:
             return jsonify(error=str(exc)), 409
 
-    @app.get("/reports/<ident>")
-    def report(ident):
-        with jobs.lock:
-            path = jobs.reports.get(ident)
-        if path is None or not path.is_file():
-            abort(404)
-        return send_file(path, mimetype="text/html", as_attachment=request.args.get("download") == "1")
-
-    @app.post("/api/reports/<ident>/pdf")
-    def report_pdf(ident):
-        with jobs.pdf_lock:
-            with jobs.lock:
-                report_path = jobs.reports.get(ident)
-                summary = jobs.summaries.get(ident)
-            if report_path is None or summary is None or not report_path.is_file():
-                abort(404)
-            pdf_path = report_path.with_suffix(".pdf")
-            try:
-                render_pdf(summary, pdf_path)
-            except Exception as exc:
-                app.logger.exception("Falha ao gerar PDF do relatório %s", ident)
-                jobs.record_error(jobs.run_id, report_path, f"Falha ao gerar PDF: {exc}",
-                                  traceback.format_exc().splitlines())
-                return jsonify(error=f"Não foi possível gerar o PDF: {exc}"), 500
-            return send_file(pdf_path, mimetype="application/pdf", as_attachment=True)
-
     @app.post("/api/shutdown")
     def shutdown():
         with jobs.lock:
             jobs.closing = True
         def stop():
             jobs.close()
+            imports.close()
             app.config["STOP_SERVER"]()
         threading.Thread(target=stop, daemon=True).start()
         return jsonify(ok=True), 202

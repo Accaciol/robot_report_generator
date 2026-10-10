@@ -1,0 +1,394 @@
+<body>
+
+<header>
+  <div>
+    <h1>{{ title }}</h1>
+    <div class="meta">Gerado em {{ generated_at }} · Versão: {{ system_version or version }} · Fonte: output.xml</div>
+  </div>
+  <div class="header-actions">
+    <button id="themeToggle" class="action-btn" type="button" aria-label="Alternar tema">🌙 Modo Escuro</button>
+  </div>
+</header>
+
+{% if environment %}
+<div class="env-strip">
+  {% if environment.generator %}<span>⚙️ <strong>Executor:</strong> {{ environment.generator }}</span>{% endif %}
+  {% if environment.rpa %}<span>🤖 <strong>RPA:</strong> {{ environment.rpa }}</span>{% endif %}
+  <span>💻 <strong>Modo:</strong> Standalone HTML</span>
+</div>
+{% endif %}
+
+{% if errors %}
+<main style="padding-bottom:0;">
+  <div class="warn-box">
+    <strong>Avisos de parsing (não fatais):</strong>
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+</main>
+{% endif %}
+
+<div id="versionVisibility" class="visibility-controls" hidden>
+  <details>
+    <summary>Execuções visíveis <span id="visibleVersionCount"></span></summary>
+    <p class="meta">Desmarque uma execução para ocultá-la em todas as abas, gráficos e comparações. O histórico original não será alterado.</p>
+    <div id="versionVisibilityOptions" class="visibility-options"></div>
+    <button id="restoreVersions" class="filter-btn" type="button">Mostrar todas</button>
+    <p id="visibilityPersistence" class="meta"></p>
+  </details>
+  <p id="noVisibleVersions" class="warn-box" role="status" hidden>Nenhuma execução visível. Selecione uma execução acima ou clique em Mostrar todas.</p>
+</div>
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="po">Visão Executiva</button>
+  <button class="tab-btn" data-tab="dev">Visão Técnica</button>
+  <button class="tab-btn" data-tab="versions">Versões</button>
+  <button class="tab-btn" data-tab="failures">Resumo de Falhas (<span id="failuresTabCount">{{ stats.failed }}</span>)</button>
+</nav>
+
+<main>
+
+  <!-- ===================== ABA 1: VISÃO EXECUTIVA (PO) ===================== -->
+  <section id="tab-po" class="tab-panel active">
+    <div class="version-filter">
+      <label for="versionSelectPo">Versão:</label>
+      <select id="versionSelectPo" class="version-select"></select>
+      <span class="version-context meta">Detalhes da execução atual</span>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <div class="value" id="metricTotal">{{ stats.total }}</div>
+        <div class="label">Total de Cenários</div>
+      </div>
+      <div class="card pass">
+        <div class="value" id="metricPassed">{{ stats.passed }}</div>
+        <div class="label">Passou</div>
+      </div>
+      <div class="card fail">
+        <div class="value" id="metricFailed">{{ stats.failed }}</div>
+        <div class="label">Falhou</div>
+        {% if delta_stats and delta_stats.has_delta and delta_stats.failed_delta != 0 %}
+          <div class="delta-tag {{ 'delta-neg' if delta_stats.failed_delta > 0 else 'delta-pos' }}">{{ delta_stats.failed_delta_str }} vs ant.</div>
+        {% endif %}
+      </div>
+      <div class="card skip">
+        <div class="value" id="metricSkipped">{{ stats.skipped }}</div>
+        <div class="label">Ignorado</div>
+      </div>
+      <div class="card">
+        <div class="value" id="metricPassRate">{{ stats.pass_rate }}%</div>
+        <div class="label">Taxa de Sucesso</div>
+        {% if delta_stats and delta_stats.has_delta and delta_stats.pass_rate_delta != 0 %}
+          <div class="delta-tag {{ 'delta-pos' if delta_stats.pass_rate_delta > 0 else 'delta-neg' }}">{{ delta_stats.pass_rate_delta_str }} vs ant.</div>
+        {% endif %}
+      </div>
+      <div class="card">
+        <div class="value" id="metricElapsed">{{ "%.1f"|format(stats.elapsed_s) }}s</div>
+        <div class="label">Duração Total</div>
+        {% if delta_stats and delta_stats.has_delta and delta_stats.elapsed_delta != 0 %}
+          <div class="delta-tag {{ 'delta-neg' if delta_stats.elapsed_delta > 0 else 'delta-pos' }}">{{ delta_stats.elapsed_delta_str }} vs ant.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="charts-grid">
+      <div class="panel-box" style="margin-bottom:0;">
+        <h2>Tendência Histórica</h2>
+        <canvas id="trendChart"></canvas>
+      </div>
+      <div class="panel-box" style="margin-bottom:0;">
+        <h2>Distribuição de Status</h2>
+        <canvas id="donutChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Painel de Testes Flaky / Instáveis (se houver no histórico) -->
+    {% if flaky_tests %}
+    <div id="flakyPanel" class="panel-box" style="border-left: 4px solid var(--flaky);">
+      <h2>⚠️ Testes Instáveis Detectados no Histórico (Flaky Tests)</h2>
+      <p class="meta" style="margin-top:0;">Testes que alternaram entre PASS e FAIL ao longo das execuções salvas:</p>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr><th>Teste</th><th>Suíte</th><th>Oscilações</th><th>Aprovações</th><th>Reprovações</th><th>Estabilidade</th></tr>
+          </thead>
+          <tbody>
+            {% for ft in flaky_tests %}
+            <tr>
+              <td><strong>{{ ft.test_name }}</strong></td>
+              <td>{{ ft.suite_name }}</td>
+              <td><span class="flaky-badge">⚡ {{ ft.flips }} oscilações</span></td>
+              <td><span style="color:var(--pass);">{{ ft.pass_count }}</span></td>
+              <td><span style="color:var(--fail);">{{ ft.fail_count }}</span></td>
+              <td><strong>{{ ft.stability }}%</strong></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Top 10 Testes Mais Lentos -->
+    <div class="panel-box" id="slowestPanel">
+      <h2>⏱️ Testes Mais Lentos (Top 10)</h2>
+      {% set all_tests_flat = [] %}
+      {% for suite in suites recursive %}
+        {% for t in suite.tests %}{{ all_tests_flat.append(t) or "" }}{% endfor %}
+        {{ loop(suite.suites) }}
+      {% endfor %}
+      {% set slowest_tests = all_tests_flat|sort(attribute='elapsed_s', reverse=True) %}
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr><th>Teste</th><th>Suíte</th><th>Status</th><th>Duração</th></tr>
+          </thead>
+          <tbody>
+            {% for t in slowest_tests[:10] %}
+            <tr>
+              <td><strong>{{ t.name }}</strong></td>
+              <td>{{ t.suite_name }}</td>
+              <td><span class="badge {{ t.status.value|replace(' ', '_') }}">{{ t.status.value }}</span></td>
+              <td>{{ "%.2f"|format(t.elapsed_s) }}s</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel-box">
+      <h2>Features Executadas</h2>
+      <div class="table-responsive">
+        <table>
+          <thead><tr><th>Feature</th><th>Cenários</th><th>Pass</th><th>Fail</th><th>Skip</th></tr></thead>
+          <tbody id="featuresTableBody">
+            {% for suite in suites recursive %}
+              {% if suite.tests %}
+              <tr>
+                <td>{{ suite.name }}</td>
+                <td>{{ suite.all_tests|length }}</td>
+                <td>{{ suite.status_summary.PASS }}</td>
+                <td>{{ suite.status_summary.FAIL }}</td>
+                <td>{{ suite.status_summary.SKIP }}</td>
+              </tr>
+              {% endif %}
+              {{ loop(suite.suites) }}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== ABA 2: VERSÕES ===================== -->
+  <section id="tab-versions" class="tab-panel">
+    <div class="panel-box">
+      <h2>Testes por versão</h2>
+      <div class="version-toolbar">
+        <label for="versionSelect">Execução:</label>
+        <select id="versionSelect" class="version-select"></select>
+        <span id="versionSummary" class="meta"></span>
+      </div>
+      <div class="table-responsive">
+        <table>
+          <thead><tr><th>Teste</th><th>Suíte</th><th>Status</th><th>Comparação</th><th>Duração</th></tr></thead>
+          <tbody id="versionTests"></tbody>
+        </table>
+      </div>
+      <p id="versionEmpty" class="meta" style="display:none;">Nenhum snapshot de teste foi salvo nessa execução.</p>
+    </div>
+  </section>
+
+  <!-- ===================== ABA 3: VISÃO TÉCNICA (DEV) ===================== -->
+  <section id="tab-dev" class="tab-panel">
+    <div class="panel-box">
+      <div class="version-filter">
+        <label for="versionSelectDev">Versão:</label>
+        <select id="versionSelectDev" class="version-select"></select>
+        <span class="version-context meta">Detalhes da execução atual</span>
+      </div>
+
+      <!-- Barra de Ferramentas com Busca e Filtros -->
+      <div class="tree-toolbar">
+        <input type="search" id="treeSearch" placeholder="🔍 Filtrar testes, palavras-chave ou tags..." class="search-input" aria-label="Pesquisar testes">
+        <div class="filter-group" aria-label="Filtro de status">
+          <button type="button" class="filter-btn active" data-filter="ALL">Todos (<span id="countAll">{{ stats.total }}</span>)</button>
+          <button type="button" class="filter-btn filter-fail" data-filter="FAIL">Falhas (<span id="countFail">{{ stats.failed }}</span>)</button>
+          <button type="button" class="filter-btn filter-pass" data-filter="PASS">Passou (<span id="countPass">{{ stats.passed }}</span>)</button>
+          <button type="button" class="filter-btn filter-skip" data-filter="SKIP">Ignorado (<span id="countSkip">{{ stats.skipped }}</span>)</button>
+        </div>
+        <div class="tree-controls">
+          <button class="tree-control" type="button" id="expandAll">Expandir tudo</button>
+          <button class="tree-control" type="button" id="collapseAll">Recolher tudo</button>
+        </div>
+      </div>
+
+      <!-- Painel de Tags -->
+      {% set all_tags_dict = {} %}
+      {% for t in all_tests_flat %}
+        {% for tag in t.tags %}
+          {% if tag in all_tags_dict %}
+            {% set _ = all_tags_dict.update({tag: all_tags_dict[tag] + 1}) %}
+          {% else %}
+            {% set _ = all_tags_dict.update({tag: 1}) %}
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+      {% if all_tags_dict %}
+      <div class="tags-panel">
+        <span class="meta">🏷️ Filtrar por Tag:</span>
+        <div class="tags-container" id="tagsFilterContainer">
+          {% for tag, count in all_tags_dict.items()|sort(attribute='1', reverse=True) %}
+          <span class="tag-pill" data-tag="{{ tag }}">{{ tag }} <strong>({{ count }})</strong></span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div id="technicalVersionNotice" class="warn-box" style="display:none;">Esta execução possui apenas métricas e snapshots. Seus detalhes técnicos e evidências completos não estão disponíveis neste relatório.</div>
+      <h2>Árvore de Execução</h2>
+
+      {% macro render_keyword(kw) %}
+        <div class="kw-node">
+          <div class="kw-title" onclick="toggleNode(this)">
+            <span class="toggle-icon"></span>
+            {% if kw.gherkin_step %}<span class="gherkin">{{ kw.gherkin_step }}</span>{% else %}{{ kw.name }}{% endif %}
+            <span class="badge {{ kw.status.value|replace(' ', '_') }}">{{ kw.status.value }}</span>
+            <span class="meta" style="font-size:11px; margin-left:6px;">{{ "%.3f"|format(kw.elapsed_s) }}s</span>
+          </div>
+          <div class="kw-children">
+            {% if kw.doc %}<div class="kw-detail">Doc: {{ kw.doc }}</div>{% endif %}
+            {% if kw.args %}<div class="kw-detail args-list">Args: {{ kw.args|join(", ") }}</div>{% endif %}
+            {% for artifact in kw.artifacts %}
+              {% if artifact.kind == "image" and artifact.embedded_data_uri %}
+                <img class="artifact-img lazy-artifact zoomable-image" data-src="{{ artifact.embedded_data_uri }}" alt="Screenshot da execução">
+              {% elif artifact.kind == "video" and artifact.embedded_data_uri %}
+                <video class="artifact-img lazy-artifact" controls data-src="{{ artifact.embedded_data_uri }}"></video>
+              {% elif artifact.missing %}
+                <div class="artifact-missing">Evidência não encontrada: {{ artifact.original_path }}</div>
+              {% elif artifact.kind == "video" %}
+                <a class="video-link" href="{{ artifact.original_path }}" target="_blank">🎬 Ver vídeo da execução</a>
+              {% endif %}
+            {% endfor %}
+            {% for child in kw.children %}{{ render_keyword(child) }}{% endfor %}
+          </div>
+        </div>
+      {% endmacro %}
+
+      {% macro render_test_artifacts(keywords) %}
+        {% for kw in keywords %}
+          {% for artifact in kw.artifacts %}
+            {% if artifact.embedded_data_uri %}
+              <div class="gallery-item">
+                <strong>{{ kw.name }}</strong>
+                {% if artifact.kind == "image" %}<img class="zoomable-image" src="{{ artifact.embedded_data_uri }}" alt="Screenshot de {{ kw.name }}">
+                {% else %}<video controls src="{{ artifact.embedded_data_uri }}"></video>{% endif %}
+              </div>
+            {% elif artifact.missing %}
+              <div class="gallery-item"><strong>{{ kw.name }}</strong><div class="artifact-missing">Evidência ausente: {{ artifact.original_path }}</div></div>
+            {% endif %}
+          {% endfor %}
+          {{ render_test_artifacts(kw.children) }}
+        {% endfor %}
+      {% endmacro %}
+
+      {% macro render_suite(suite) %}
+        <div class="suite-node">
+          <div class="suite-title" onclick="toggleNode(this)">
+            <div>
+              <span class="toggle-icon"></span>{{ suite.name }}
+              <span style="color:var(--muted); font-weight:400; font-size:12px;">({{ suite.all_tests|length }} cenários)</span>
+            </div>
+            <div>
+              <span class="badge PASS">{{ suite.status_summary.PASS }}</span>
+              <span class="badge FAIL">{{ suite.status_summary.FAIL }}</span>
+              {% if suite.status_summary.SKIP %}<span class="badge SKIP">{{ suite.status_summary.SKIP }}</span>{% endif %}
+            </div>
+          </div>
+          <div class="suite-children">
+            {% for test in suite.tests %}
+              <div class="test-node" data-status="{{ test.status.value }}" data-tags="{{ test.tags|join(' ')|lower }}" data-name="{{ test.name|lower }} {{ test.doc|lower }}">
+                <div class="test-title" onclick="toggleNode(this)">
+                  <div>
+                    <span class="toggle-icon"></span>{{ test.name }}
+                  </div>
+                  <div>
+                    <span class="meta" style="font-size:12px; margin-right:6px;">{{ "%.2f"|format(test.elapsed_s) }}s</span>
+                    <span class="badge {{ test.status.value|replace(' ', '_') }}">{{ test.status.value }}</span>
+                  </div>
+                </div>
+                <div class="test-children">
+                  {% if test.doc %}<div class="kw-detail"><strong>Cenário:</strong> {{ test.doc }}</div>{% endif %}
+                  {% if test.tags %}
+                    <div class="kw-detail"><strong>Tags:</strong>
+                      {% for tag in test.tags %}
+                        {% if issue_url_pattern and ('-' in tag or '#' in tag) %}
+                          <a class="tag-pill tag-link" href="{{ issue_url_pattern.replace('{id}', tag) }}" target="_blank">🔗 {{ tag }}</a>
+                        {% else %}
+                          <span class="tag-pill">{{ tag }}</span>
+                        {% endif %}
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                  {% for kw in test.keywords %}{{ render_keyword(kw) }}{% endfor %}
+                </div>
+              </div>
+            {% endfor %}
+            {% for child_suite in suite.suites %}{{ render_suite(child_suite) }}{% endfor %}
+          </div>
+        </div>
+      {% endmacro %}
+
+      <div id="suitesContainer">
+        {% for suite in suites %}{{ render_suite(suite) }}{% endfor %}
+      </div>
+      <p id="noTestsFoundMsg" class="meta" style="display:none; text-align:center; padding: 24px;">Nenhum teste encontrado com os filtros aplicados.</p>
+    </div>
+  </section>
+
+  <!-- ===================== ABA 4: RESUMO DE FALHAS ===================== -->
+  <section id="tab-failures" class="tab-panel">
+    <div class="panel-box">
+      <div class="version-filter">
+        <label for="versionSelectFailures">Versão:</label>
+        <select id="versionSelectFailures" class="version-select"></select>
+        <span class="version-context meta">Detalhes da execução atual</span>
+      </div>
+      <h2>Testes com Falha</h2>
+      <div id="historicalFailures" style="display:none;"></div>
+      <div id="currentFailures">
+      {% set failed_tests = [] %}
+      {% for suite in suites recursive %}
+        {% for t in suite.tests if t.is_failed %}{{ failed_tests.append(t) or "" }}{% endfor %}
+        {{ loop(suite.suites) }}
+      {% endfor %}
+
+      {% if not failed_tests %}
+        <p>Nenhuma falha nesta execução. ✅</p>
+      {% endif %}
+
+      {% for test in failed_tests %}
+        <div class="failure-card">
+          <div class="failure-header">
+            <div>
+              <h3>{{ test.name }}</h3>
+              <div class="meta">Suíte: {{ test.suite_name }} · Duração: {{ "%.2f"|format(test.elapsed_s) }}s</div>
+            </div>
+            <button class="copy-btn" type="button" onclick="copyFailureError(this)" data-test="{{ test.name }}" data-suite="{{ test.suite_name }}" data-step="{{ test.failed_step or '' }}" data-msg="{{ test.message or '' }}">📋 Copiar Erro</button>
+          </div>
+          {% if test.failed_step %}<div class="failure-step">Passo com falha: <span class="gherkin">{{ test.failed_step }}</span></div>{% endif %}
+          <div class="failure-message">{{ test.message or "Sem mensagem de erro registrada." }}</div>
+          <div class="gallery">{{ render_test_artifacts(test.keywords) }}</div>
+        </div>
+      {% endfor %}
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div class="lightbox" id="imageLightbox" role="dialog" aria-modal="true" aria-label="Screenshot ampliado" aria-hidden="true">
+  <button class="lightbox-close" type="button" aria-label="Fechar imagem ampliada">&times;</button>
+  <img id="lightboxImage" alt="Screenshot ampliado">
+</div>
+
+{% include "_report_scripts.html" %}

@@ -12,13 +12,19 @@ robot_report_generator/
 ├── models.py                   # Dataclasses tipadas (Status, SuiteResult, TestResult, ...)
 ├── core/
 │   ├── xml_parser.py           # output.xml -> dataclasses (Robot Framework Visitor)
-│   ├── history_manager.py      # Persistência e rotação de history.json
+│   ├── sqlite_store.py        # Persistência transacional do histórico SQLite
+│   ├── database_admin.py      # Backup completo, restauração e limpeza de artefatos
+│   ├── import_service.py      # Ingestão segura de ZIPs e pastas
 │   ├── report_renderer.py      # Renderização HTML standalone (Jinja2 + Base64 com cache)
-│   ├── web_app.py              # Rotas e proteção da interface local
-│   ├── web_jobs.py             # Fila e cancelamento de subprocessos
+│   ├── web_app.py              # Rotas, autenticação e respostas HTTP da interface local
+│   ├── web_services.py         # Validação de pedidos e operações de catálogo/histórico
+│   ├── web_jobs.py             # Coordenação da fila e execução de cada item
 │   └── web/                    # HTML, CSS e JavaScript da interface
 ├── templates/
-│   └── report_template.html    # Template com abas executiva / técnica / versões / falhas
+│   ├── report_template.html    # Estrutura principal do relatório
+│   ├── _report_styles.html     # Estilos do relatório
+│   ├── _report_body.html       # Abas executiva / técnica / versões / falhas
+│   └── _report_scripts.html    # Interações do relatório
 ├── assets/
 │   └── chart.umd.min.js        # (Opcional) Build UMD do Chart.js para relatório 100% offline
 └── tests/                      # Suíte de testes automatizados (unittest / pytest)
@@ -53,7 +59,7 @@ pip install -r requirements.txt
 Após executar seus testes com `robot`, gere o relatório apontando para a pasta de resultados:
 
 ```bash
-python main.py --results-dir caminho/para/results --history history.json --report relatorio.html
+python main.py --results-dir caminho/para/results --database robot-results/report_history.sqlite3 --report relatorio.html
 ```
 ou, se instalado como pacote:
 ```bash
@@ -65,7 +71,7 @@ robot-report --results-dir caminho/para/results
 |---|---|---|
 | `--output-xml` | `<results-dir>/output.xml` | Caminho explícito para o arquivo `output.xml`. |
 | `--results-dir` | Diretório atual | Pasta com o `output.xml` e evidências (screenshots e vídeos). |
-| `--history` | `history.json` | Arquivo para leitura e persistência do histórico de execuções. |
+| `--database` | `robot-results/report_history.sqlite3` | Banco SQLite do histórico e catálogo. |
 | `--report` | `relatorio.html` | Caminho do arquivo HTML final gerado. |
 | `--title` | `"Relatório de Execução — Testes BDD"` | Título exibido no cabeçalho e na aba do navegador. |
 | `--fail-on-error` | `False` | **Ideal para CI/CD**: encerra o processo com código de saída `1` se houver testes com falha. |
@@ -74,8 +80,7 @@ robot-report --results-dir caminho/para/results
 
 Gerar novamente a partir do mesmo `output.xml` não adiciona uma versão repetida ao
 histórico. A CLI substitui o HTML quando recebe o mesmo caminho em `--report`.
-Entradas antigas idênticas são exibidas uma única vez e consolidadas no arquivo de
-histórico na próxima geração.
+Execuções são identificadas pelo conteúdo de `output.xml`; importar novamente o mesmo resultado não cria duplicatas.
 
 ### 2. Via interface web local
 
@@ -88,185 +93,97 @@ robot-report-gui
 ```
 
 O navegador abre automaticamente. Se isso não acontecer, copie o endereço completo
-exibido no terminal (incluindo `#token=...`). O servidor usa uma porta disponível
-em `127.0.0.1` e aceita somente conexões locais autenticadas. Não compartilhe esse
-endereço: ele contém a chave de acesso à sessão.
+exibido no terminal (incluindo `#token=...`). Esse endereço abre a interface
+administrativa local e contém a chave de acesso à sessão; não o compartilhe. O link
+público de consulta é `/public` no mesmo servidor e não exige token.
 
-1. Selecione uma aplicação cadastrada ou informe o identificador e nome de uma
-   nova aplicação. Clique em **Adicionar pasta**; a seleção é liberada quando a
-   pasta contém `output.xml`. A aplicação escolhida fica associada a essa pasta
-   na fila, permitindo misturar aplicações no mesmo lote.
-2. Adicione quantas pastas precisar e escolha a pasta dos relatórios. Por padrão,
-   o destino é sua pasta pessoal. O histórico de cada aplicação fica no catálogo
-   `robot-results/systems/`. O campo de histórico antigo é usado apenas na
-   migração explícita, que preserva o arquivo original.
-3. Clique em **Gerar relatórios**. A fila é processada sequencialmente; uma falha
-   fica registrada e não impede os próximos itens. Cada pasta de origem usa sempre
-   o mesmo nome de HTML no destino escolhido. Uma nova geração substitui esse arquivo
-   somente após terminar com sucesso; se falhar, o HTML anterior permanece disponível.
-   Consulte **Visão geral** para comparar aplicações e períodos.
-4. Use **Abrir** ou **Baixar** em cada item concluído. Clique em **Gerar PDF** para
-   salvar e baixar um resumo da execução, com indicadores, totais por suíte e nomes
-   dos testes com falha. O PDF recebe o mesmo nome do HTML, com extensão `.pdf`;
-   clicar novamente atualiza o PDF salvo com o layout atual. Uma nova geração do HTML
-   remove o PDF anterior para evitar um resumo desatualizado.
-   Os arquivos permanecem no destino escolhido depois que o servidor é encerrado.
-5. **Cancelar** interrompe o item ativo e os pendentes, aguardando o processo sair
-   antes de permitir uma nova execução. Relatórios já concluídos são preservados.
-6. Use **Encerrar** ou `Ctrl+C` no terminal para desligar o servidor. Fechar a aba
-   não interrompe a fila. Encerrar durante uma execução cancela os itens restantes.
+1. Selecione um ZIP de resultados e clique em **Enviar e analisar ZIP**. O arquivo pode conter `output.xml` na raiz ou dentro de uma única pasta; a interface valida os caminhos internos e apresenta os totais encontrados.
+2. Selecione um sistema existente ou informe identificador e nome para um novo. Informe a versão do produto. A data e hora são sugeridas pelo XML e podem ser editadas; preencha manualmente quando o XML não as trouxer.
+3. Clique em **Importar execução**. Métricas e snapshots ficam no SQLite. O ZIP original e os arquivos extraídos são preservados apenas para a execução cronologicamente mais recente de cada sistema; execuções anteriores continuam disponíveis no histórico.
+4. Acompanhe a importação e abra o **link fixo**. A página pública permite selecionar sistemas e renderiza os dados atuais do SQLite no template existente; não é criado um HTML a cada ZIP. A versão do produto continua no campo de metadados existente.
+   A visão geral compara os sistemas e exibe uma linha histórica de aprovação por sistema. Ao selecionar um sistema, o link mostra o relatório completo.
+5. Consulte **Visão geral** para comparar sistemas e períodos. A área de histórico permite remover uma execução.
+6. Use **Encerrar** ou `Ctrl+C` no terminal para desligar o servidor. Fechar a aba não interrompe a fila.
 
-A interface usa HTML, CSS e JavaScript locais, sem precisar de internet. O Python
-continua necessário para gerar os relatórios; não há upload nem hospedagem externa.
-Se a exportação mostrar `No module named 'reportlab'`, instale as dependências com
-`python -m pip install -r requirements.txt` usando o mesmo Python que inicia `gui.py`
-e reinicie a interface.
-O relatório gerado mantém seu comportamento anterior, incluindo o Chart.js via CDN
-quando o arquivo opcional não foi instalado em `assets/`.
+O SQLite é compartilhado entre a interface local e a CLI. A base começa vazia; arquivos de histórico JSON antigos são preservados, sem migração automática. O caminho padrão é `robot-results/report_history.sqlite3` e pode ser alterado por `--database` ou `ROBOT_REPORT_DATABASE`. O limite padrão do ZIP é 500 MiB; o conteúdo expandido é limitado a 1 GiB e 10.000 arquivos. Os limites de upload e expansão podem ser configurados por `ROBOT_REPORT_MAX_UPLOAD_BYTES` e `ROBOT_REPORT_MAX_UNPACKED_BYTES`.
+
+A interface usa HTML, CSS e JavaScript locais, sem precisar de internet. O ZIP é
+enviado ao servidor que executa a aplicação; não há envio a um serviço de terceiros.
+O Python continua necessário para importar os resultados e renderizar a página quando
+ela é aberta. O relatório mantém o comportamento visual anterior, incluindo o Chart.js
+via CDN quando o arquivo opcional não foi instalado em `assets/`.
 
 As opções ficam bloqueadas durante o processamento. A fila e os logs pertencem à
-sessão atual. Em **Logs da geração**, a aba **Log completo** mostra a execução mais
-recente; **Erros** reúne as falhas de HTML e PDF da sessão com pasta, motivo e detalhes
-do processo. Até 50 erros ficam em memória enquanto o servidor estiver aberto.
-O histórico JSON e os relatórios ficam gravados no disco. O navegador
-de pastas inicia na pasta pessoal e respeita as permissões do usuário do sistema.
+sessão atual. Em **Logs da geração**, a aba **Log completo** mostra a importação mais
+recente; **Erros** reúne falhas da sessão com pasta, motivo e detalhes do processo.
+Até 50 erros ficam em memória enquanto o servidor estiver aberto.
+O histórico SQLite e os dados da execução mais recente ficam gravados no disco. O processamento local respeita as permissões do usuário do sistema. O link `/public` não exige login e expõe o conteúdo completo dos relatórios; compartilhe-o somente se esses dados puderem ser públicos.
+
+---
+
+## Executando com Docker
+
+Você pode executar tanto a interface web (Flask) quanto os comandos CLI de geração sem precisar configurar o ambiente Python localmente.
+
+### 1. Subindo a Interface Web com Docker Compose
+Para iniciar a aplicação em container:
+```bash
+docker compose up -d --build
+```
+Acesse a aplicação em seu navegador através do endereço exibido nos logs (ou `http://localhost:5000`). Para visualizar o link com o token de sessão gerado:
+```bash
+docker compose logs -f
+```
+O histórico SQLite e os arquivos da execução mais recente ficam no volume Docker `robot-report-data`. O link fixo do catálogo é `http://localhost:5000/public`; ele lê o banco e exibe a execução mais recente de cada sistema sem salvar relatórios HTML. Para usuários externos, mantenha o container em um servidor acessível, configure DNS e HTTPS em um proxy reverso e compartilhe `https://seu-dominio/public`. A interface de importação continua restrita ao endereço local configurado. O conteúdo completo do relatório é público nesse link.
+
+### 2. Construindo a Imagem Manualmente
+```bash
+docker build -t robot-report-generator .
+```
+
+### 3. Rodando o CLI via Container
+Para gerar um relatório pontual usando uma pasta de resultados da sua máquina hospedeira:
+```bash
+docker run --rm \
+  -v "$(pwd)/example:/app/example" \
+  -v "$(pwd)/output:/app/output" \
+  robot-report-generator \
+  main.py --results-dir /app/example --report /app/output/relatorio.html --no-history
+```
 
 ---
 
 ## Sistemas e histórico
 
-O relatório consolidado tem um seletor de sistemas. Cada sistema possui seu próprio
-histórico, gráficos, comparações e evidências. Gere um único HTML com a opção
-`--catalog-dir` e selecione o sistema no cabeçalho.
-
-### Importar resultados
-
-Execute na raiz do projeto:
+A CLI importa pastas ou ZIPs diretamente para o mesmo SQLite usado pela interface:
 
 ```bash
-python scripts/update_robot_results.py /caminho/resultados-pagamentos \
-  --system pagamentos --name "Pagamentos"
-python scripts/update_robot_results.py /caminho/resultados-cadastro \
-  --system cadastro --name "Cadastro de clientes"
-```
-
-`--system` é obrigatório e aceita letras minúsculas, números e hífens, por exemplo
-`portal-cliente`. `--name` define ou atualiza o nome exibido; nas próximas importações
-pode ser omitido. Um sistema novo sem nome usa seu identificador como nome.
-
-Cada origem precisa conter `output.xml` e as evidências referenciadas por caminhos
-relativos. O script valida o XML e prepara a cópia antes de substituir dados.
-Reimportar o mesmo XML no mesmo sistema não duplica a execução. Um XML alterado
-recebe outro identificador, mesmo se as métricas forem iguais.
-
-A base fica em `robot-results/systems/<sistema>/`:
-
-- `system.json`: identificação e vínculo com a execução que tem evidências.
-- `history.json`: métricas e snapshots dos testes, sem limite automático de execuções.
-- `current/`: XML e evidências completos somente da execução mais recente.
-
-Resultados antigos importados posteriormente entram na ordem cronológica, sem
-substituir os outputs mais recentes. Empates de data são ordenados pelo identificador
-completo da execução. Execuções sem data usam `1970-01-01` para ordenação determinística.
-`log.html` e `report.html` da raiz da origem não são copiados. Cada atualização
-substitui apenas os arquivos do sistema informado.
-
-### Listar e remover uma execução incorreta
-
-```bash
+python scripts/update_robot_results.py /caminho/resultados.zip \
+  --system pagamentos --name "Pagamentos" --version 2.4.1
 python scripts/update_robot_results.py --list
 python scripts/update_robot_results.py --list --system pagamentos
 python scripts/update_robot_results.py --system pagamentos --remove ID_COMPLETO_DA_EXECUCAO
 ```
 
-Copie o ID completo mostrado pela listagem. A remoção exclui a execução da base e
-recalcula a evolução no próximo relatório. Caso ela possua os outputs atuais, esses
-arquivos também são apagados. A execução anterior continua disponível como resumo;
-suas evidências antigas não podem ser recuperadas automaticamente. Remover a última
-execução mantém o sistema cadastrado, mostrando um estado vazio.
+O banco padrão fica em `robot-results/report_history.sqlite3`; use `--database` ou `ROBOT_REPORT_DATABASE` para escolher outro arquivo. A base inicia vazia e não importa automaticamente os arquivos JSON antigos; eles permanecem intactos.
 
-O HTML é uma cópia de consulta: remoções persistentes são feitas pelo mantenedor,
-com o comando acima e um novo commit. HTMLs já baixados não mudam. A opção **Execuções
-visíveis** apenas oculta resultados na visualização. No consolidado, essa preferência
-é mantida por sistema enquanto a página estiver aberta, inclusive ao trocar de sistema.
+Cada importação registra métricas e snapshots no SQLite. O ZIP original e os resultados extraídos ficam arquivados somente para a execução mais recente por data e hora; execuções antigas permanecem consultáveis no histórico. O mesmo XML não é duplicado no mesmo sistema.
 
-### Gerar o relatório consolidado
+### Backup, manutenção e estrutura do banco
 
-```bash
-python main.py --catalog-dir robot-results/systems --report relatorio.html
-```
+Na interface local, use **Baixar backup completo** para salvar um pacote ZIP com o banco SQLite e os artefatos da execução atual. **Restaurar backup** valida o SQLite e substitui o histórico e os artefatos atuais; faça isso somente quando não houver importações pendentes. Para inspeção, o pacote pode ser extraído e `report_history.sqlite3` aberto no DB Browser for SQLite.
 
-A visão geral soma os cenários da execução mais recente de cada aplicação e
-mostra a evolução diária por 30, 90, 365 dias ou todo o período. Para gerar
-também um site com uma página por aplicação:
+O painel de histórico permite filtrar por data, versão e resultado e remover execuções. A seção de manutenção também procura diretórios de artefatos sem registro no banco; a remoção exige confirmação e não toca em uploads pendentes. O catálogo identifica cada sistema pelo par nome/ID, evitando confusão quando há nomes repetidos.
+
+As tabelas centrais são `systems`, `executions` e `test_snapshots`. Alterações de esquema devem avançar `PRAGMA user_version` e incluir uma migração incremental em `SQLiteStore._initialize`; não apague nem recrie o banco para atualizar a aplicação. A API local documentada no código inclui `/api/database/backup`, `/api/database/restore`, `/api/artifacts/orphans` e `/api/artifacts/cleanup`.
+
+Para gerar o relatório consolidado do banco:
 
 ```bash
-python main.py --catalog-dir robot-results/systems --report relatorio.html --site-dir /tmp/robot-report-site
+python main.py --catalog-report --database robot-results/report_history.sqlite3 --report relatorio.html
 ```
 
-O site inclui `index.html`, `systems/<id>.html`, `version.json` e
-`staticwebapp.config.json`. A página aberta verifica atualizações a cada
-60 segundos. Não coloque `--site-dir` dentro do catálogo.
-
-### Publicar no Azure Static Web Apps
-
-Crie um Azure Static Web App e instale o CLI `swa`
-(`npm install -g @azure/static-web-apps-cli`). Configure o token de implantação
-como segredo no ambiente da máquina que importa os resultados, na variável
-`ROBOT_REPORT_SWA_TOKEN`. Não grave o token no repositório. Cada importação
-bem-sucedida por `scripts/update_robot_results.py` ou pela interface local
-gera e publica o site automaticamente com `swa deploy`; sem token, a
-importação permanece apenas local. Uma falha de publicação não reverte a
-importação, e o site anterior continua disponível.
-
-O site exige a função `reader`: convide os usuários autorizados no Azure
-Static Web Apps e atribua essa função. O limite de convites individuais do
-serviço é 25 usuários. A geração continua local; o Azure hospeda apenas os
-arquivos estáticos. A interface local permite escolher uma aplicação para
-cada pasta do lote e migrar explicitamente um histórico antigo para uma
-aplicação nova, preservando o arquivo original.
-
-A geração é somente leitura: não acrescenta execuções nem altera a base.
-`--catalog-dir` não pode ser combinado com `--results-dir`, `--output-xml` ou
-`--no-embed-artifacts`. As opções `--title`, `--issue-url` e `--fail-on-error`
-continuam disponíveis. Neste modo, `--history` e `--no-history` não controlam a base:
-o histórico é sempre lido do catálogo, sem gravação.
-
-Testes Robot com status FAIL aparecem no relatório. O uso opcional de
-`--fail-on-error` retorna código 1 quando a execução mais recente de algum sistema
-tem falhas, mas ainda gera o HTML. Catálogo inválido ou XML atual alterado fora do
-importador interrompe a geração. Um catálogo vazio gera um HTML com estado vazio.
-Os resumos não têm limite automático; versões antigas de imagens mantidas no Git
-continuam ocupando espaço no histórico do repositório.
-
-### Migrar a entrada anterior
-
-A migração é explícita e requer um identificador de sistema ainda não cadastrado:
-
-```bash
-python scripts/update_robot_results.py robot-results/current \
-  --system sistema-legado --name "Sistema legado" \
-  --migrate-history /caminho/history.json
-```
-
-Se não há histórico legado, importe a pasta antiga normalmente com `--system`.
-A migração não apaga os arquivos de origem; após conferir o HTML, remova a pasta
-legada do repositório se não precisar mais dela. O histórico antigo recebe IDs
-estáveis próprios. Uma entrada legada só é associada ao XML quando data até segundos,
-métricas e snapshots correspondem; entradas ambíguas são preservadas para revisão
-manual pela listagem e remoção por ID.
-
-Para trabalhar com outra base, use `--catalog-dir /caminho/systems` nos comandos de
-gerenciamento e geração. A origem dos outputs deve estar fora dessa base. Use os
-comandos para atualizar o catálogo, evitando editar seus JSONs manualmente. Escritas
-simultâneas são bloqueadas. Uma interrupção na troca de diretórios mantém um backup
-local legível, recuperado na próxima atualização; não remova arquivos `.backup`
-manualmente. Arquivos transitórios do catálogo padrão são ignorados pelo Git.
-
-A CLI de sistema único (`--results-dir`) e a interface local continuam funcionando
-como antes. O gerenciamento de múltiplos sistemas nesta versão é feito pela CLI.
-
----
+Também é possível gerar um site estático por sistema com `--site-dir /tmp/robot-report-site`. A geração do catálogo não grava no banco. Os arquivos do Azure Static Web Apps são opcionais e podem ser publicados localmente com `ROBOT_REPORT_SWA_TOKEN`; isso não depende de Azure DevOps.
 
 ## Funcionalidades do Relatório HTML
 
@@ -294,7 +211,7 @@ O relatório gerado é um arquivo único, interativo e responsivo:
 
 5. **Visibilidade das execuções**:
    - No controle **Execuções visíveis**, desmarque uma execução para ocultá-la em todas as abas, seletores, gráficos e comparações.
-   - A comparação usa a execução visível anterior. **Mostrar todas** restaura as execuções sem alterar o histórico JSON.
+   - A comparação usa a execução visível anterior. **Mostrar todas** restaura as execuções sem alterar o histórico salvo.
    - Se todas forem ocultadas, o relatório exibe um estado vazio com a opção de restaurar.
    - A preferência fica salva por relatório no navegador quando o armazenamento está disponível; na visualização isolada da interface local, vale enquanto a página estiver aberta. O arquivo HTML original não é modificado.
 

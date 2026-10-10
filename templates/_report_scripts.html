@@ -1,0 +1,558 @@
+{% if chart_js_mode == "inline" %}
+<script>
+{{ chart_js_content|safe }}
+</script>
+{% else %}
+<script src="{{ chart_js_content }}"></script>
+{% endif %}
+<script>
+  // ---- Dados globais do relatório ----
+  var REPORT_STATS = {
+    total: {{ stats.total }},
+    passed: {{ stats.passed }},
+    failed: {{ stats.failed }},
+    skipped: {{ stats.skipped }},
+    passRate: {{ stats.pass_rate }},
+    elapsed: {{ stats.elapsed_s }},
+    version: {{ version|tojson }},
+    generatedAt: {{ generated_at|tojson }}
+  };
+
+  // ---- Tema Escuro / Claro ----
+  (function initTheme() {
+    // O relatório também pode ser aberto em uma origem isolada pela interface local.
+    var saved = null;
+    try { saved = localStorage.getItem('robot_report_theme'); } catch (error) { /* preferência opcional */ }
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var current = saved || (prefersDark ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', current);
+    var btn = document.getElementById('themeToggle');
+    if (btn) {
+      btn.textContent = current === 'dark' ? '☀️ Modo Claro' : '🌙 Modo Escuro';
+      btn.addEventListener('click', function () {
+        var active = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', active);
+        try { localStorage.setItem('robot_report_theme', active); } catch (error) { /* preferência opcional */ }
+        btn.textContent = active === 'dark' ? '☀️ Modo Claro' : '🌙 Modo Escuro';
+        if (window.parent !== window) {
+          window.parent.postMessage({ type: 'robot-report-theme', theme: active }, '*');
+        }
+      });
+    }
+    if (window.parent !== window) {
+      window.addEventListener('message', function (event) {
+        if (event.source !== window.parent || !event.data || event.data.type !== 'robot-report-theme-sync') { return; }
+        if (event.data.theme !== 'dark' && event.data.theme !== 'light') { return; }
+        document.documentElement.setAttribute('data-theme', event.data.theme);
+        if (btn) { btn.textContent = event.data.theme === 'dark' ? '☀️ Modo Claro' : '🌙 Modo Escuro'; }
+      });
+    }
+  })();
+
+  // ---- Tabs ----
+  function switchToTab(tabId) {
+    document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+    document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
+    var targetBtn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
+    var targetPanel = document.getElementById('tab-' + tabId);
+    if (targetBtn && targetPanel) {
+      targetBtn.classList.add('active');
+      targetPanel.classList.add('active');
+    }
+  }
+
+  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      switchToTab(btn.dataset.tab);
+    });
+  });
+
+  // ---- Árvore expansível ----
+  function toggleNode(el) {
+    var node = el.parentElement;
+    var expanded = node.classList.toggle('expanded');
+    if (expanded) { loadNodeArtifacts(node); }
+  }
+
+  function loadNodeArtifacts(node) {
+    var content = node.querySelector(':scope > .kw-children');
+    if (!content) { return; }
+    Array.prototype.filter.call(content.children, function (child) {
+      return child.classList.contains('lazy-artifact') && child.hasAttribute('data-src');
+    }).forEach(function (media) {
+      media.src = media.dataset.src;
+      media.removeAttribute('data-src');
+    });
+  }
+
+  // ---- Expansão global da árvore ----
+  function setTreeExpanded(expanded) {
+    document.querySelectorAll('#tab-dev .suite-node, #tab-dev .test-node, #tab-dev .kw-node').forEach(function (node) {
+      node.classList.toggle('expanded', expanded);
+      if (expanded && node.classList.contains('kw-node')) { loadNodeArtifacts(node); }
+    });
+  }
+
+  document.getElementById('expandAll').addEventListener('click', function () { setTreeExpanded(true); });
+  document.getElementById('collapseAll').addEventListener('click', function () { setTreeExpanded(false); });
+
+  // ---- Filtros e Busca da Árvore Técnica ----
+  (function initTreeFilters() {
+    var searchInput = document.getElementById('treeSearch');
+    var filterButtons = document.querySelectorAll('.filter-btn');
+    var tagPills = document.querySelectorAll('.tag-pill');
+    var activeFilter = 'ALL';
+    var activeTag = '';
+    var searchQuery = '';
+
+    function applyFilters() {
+      var testNodes = document.querySelectorAll('#tab-dev .test-node');
+      var visibleCount = 0;
+
+      testNodes.forEach(function (testNode) {
+        var status = testNode.getAttribute('data-status') || '';
+        var tags = testNode.getAttribute('data-tags') || '';
+        var name = testNode.getAttribute('data-name') || '';
+
+        var matchStatus = (activeFilter === 'ALL') || (status === activeFilter);
+        var matchTag = (!activeTag) || tags.indexOf(activeTag.toLowerCase()) !== -1;
+        var matchSearch = (!searchQuery) || (name.indexOf(searchQuery) !== -1) || (tags.indexOf(searchQuery) !== -1);
+
+        if (matchStatus && matchTag && matchSearch) {
+          testNode.style.display = '';
+          visibleCount++;
+        } else {
+          testNode.style.display = 'none';
+        }
+      });
+
+      // Atualiza visibilidade dos nós de suíte
+      document.querySelectorAll('#tab-dev .suite-node').forEach(function (suiteNode) {
+        var hasVisibleTest = suiteNode.querySelector('.test-node:not([style*="display: none"])');
+        suiteNode.style.display = hasVisibleTest ? '' : 'none';
+        if (hasVisibleTest && (searchQuery || activeTag || activeFilter !== 'ALL')) {
+          suiteNode.classList.add('expanded');
+        }
+      });
+
+      var noResults = document.getElementById('noTestsFoundMsg');
+      if (noResults) {
+        noResults.style.display = visibleCount === 0 ? 'block' : 'none';
+      }
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        searchQuery = searchInput.value.trim().toLowerCase();
+        applyFilters();
+      });
+    }
+
+    filterButtons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        filterButtons.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        activeFilter = btn.getAttribute('data-filter') || 'ALL';
+        applyFilters();
+      });
+    });
+
+    tagPills.forEach(function (pill) {
+      pill.addEventListener('click', function () {
+        if (pill.classList.contains('active')) {
+          pill.classList.remove('active');
+          activeTag = '';
+        } else {
+          tagPills.forEach(function (p) { p.classList.remove('active'); });
+          pill.classList.add('active');
+          activeTag = pill.getAttribute('data-tag') || '';
+        }
+        applyFilters();
+      });
+    });
+  })();
+
+  // ---- Copiar Erro para Clipboard ----
+  function copyFailureError(button) {
+    var test = button.getAttribute('data-test') || '';
+    var suite = button.getAttribute('data-suite') || '';
+    var step = button.getAttribute('data-step') || '';
+    var msg = button.getAttribute('data-msg') || '';
+
+    var lines = [
+      'Falha no Teste: ' + test,
+      'Suíte: ' + suite
+    ];
+    if (step) {
+      lines.push('Passo com falha: ' + step);
+    }
+    lines.push('Mensagem de Erro:');
+    lines.push(msg);
+    var text = lines.join('\\n');
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(onCopied);
+    } else {
+      var textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      onCopied();
+    }
+
+    function onCopied() {
+      var original = button.textContent;
+      button.textContent = '✓ Copiado!';
+      button.style.borderColor = 'var(--pass)';
+      button.style.color = 'var(--pass)';
+      setTimeout(function () {
+        button.textContent = original;
+        button.style.borderColor = '';
+        button.style.color = '';
+      }, 2000);
+    }
+  }
+
+  // ---- Screenshot ampliado ----
+  (function () {
+    var lightbox = document.getElementById('imageLightbox');
+    var lightboxImage = document.getElementById('lightboxImage');
+    var closeButton = lightbox.querySelector('.lightbox-close');
+    var lastFocused = null;
+    function closeLightbox() {
+      lightbox.classList.remove('open');
+      lightbox.setAttribute('aria-hidden', 'true');
+      lightboxImage.removeAttribute('src');
+      if (lastFocused) { lastFocused.focus(); }
+    }
+    document.addEventListener('click', function (event) {
+      var image = event.target.closest('.zoomable-image');
+      if (image && image.src) {
+        lastFocused = image;
+        lightboxImage.src = image.src;
+        lightbox.classList.add('open');
+        lightbox.setAttribute('aria-hidden', 'false');
+        closeButton.focus();
+      }
+    });
+    closeButton.addEventListener('click', closeLightbox);
+    lightbox.addEventListener('click', function (event) {
+      if (event.target === lightbox) { closeLightbox(); }
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && lightbox.classList.contains('open')) { closeLightbox(); }
+    });
+  })();
+
+  var reportTrendChart = null;
+  var reportDonutChart = null;
+  // ---- Gráfico de tendência e Donut Chart ----
+  (function () {
+    var history = {{ history|tojson }};
+    if (typeof Chart === 'undefined') { return; }
+
+    // 1. Tendência Linear
+    var trendCtx = document.getElementById('trendChart');
+    if (trendCtx && history.length) {
+      reportTrendChart = new Chart(trendCtx, {
+        type: 'line',
+        data: {
+          labels: history.map(function (h) { return (h.version || h.timestamp).replace('T', ' '); }),
+          datasets: [
+            { label: 'Pass', data: history.map(function (h) { return h.passed; }), borderColor: '#1e8e3e', backgroundColor: 'rgba(30,142,62,0.1)', tension: 0.25 },
+            { label: 'Fail', data: history.map(function (h) { return h.failed; }), borderColor: '#d93025', backgroundColor: 'rgba(217,48,37,0.1)', tension: 0.25 },
+            { label: 'Skip', data: history.map(function (h) { return h.skipped || 0; }), borderColor: '#f9ab00', backgroundColor: 'rgba(249,171,0,0.1)', tension: 0.25 },
+            { label: 'Total', data: history.map(function (h) { return h.total; }), borderColor: '#1a73e8', backgroundColor: 'rgba(26,115,232,0.08)', tension: 0.25 }
+          ]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
+      });
+    }
+
+    // 2. Gráfico de Rosca (Donut)
+    var donutCtx = document.getElementById('donutChart');
+    if (donutCtx) {
+      reportDonutChart = new Chart(donutCtx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Passou', 'Falhou', 'Ignorado'],
+          datasets: [{
+            data: [REPORT_STATS.passed, REPORT_STATS.failed, REPORT_STATS.skipped],
+            backgroundColor: ['#1e8e3e', '#d93025', '#f9ab00'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom' } },
+          onClick: function (evt, elements) {
+            if (elements && elements.length > 0) {
+              var index = elements[0].index;
+              if (index === 1) { // Fail
+                switchToTab('failures');
+              } else {
+                switchToTab('dev');
+              }
+            }
+          }
+        }
+      });
+    }
+  })();
+
+  // ---- Comparação por versão ----
+  (function () {
+    var history = {{ history|tojson }};
+    var selects = Array.prototype.slice.call(document.querySelectorAll('.version-select'));
+    var select = document.getElementById('versionSelect');
+    var body = document.getElementById('versionTests');
+    var summary = document.getElementById('versionSummary');
+    var empty = document.getElementById('versionEmpty');
+    var currentVersion = {{ detailed_index }} >= 0 ? {{ detailed_index }} : (history.length ? history.length - 1 : 0);
+    var detailedVersion = {{ detailed_index }};
+    if (!selects.length || !history.length) { return; }
+    var hiddenVersions = new Set();
+    var storageKey = 'robot-report-hidden:' + {{ title|tojson }} + ':' + {{ generated_at|tojson }} + ':' + JSON.stringify(history.map(function (entry) { return [entry.timestamp, entry.version]; }));
+    var canPersist = true;
+    try {
+      var stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      if (Array.isArray(stored)) stored.forEach(function (index) {
+        if (Number.isInteger(index) && index >= 0 && index < history.length) hiddenVersions.add(index);
+      });
+    } catch (error) { canPersist = false; }
+    var originalFeatures = document.getElementById('featuresTableBody').innerHTML;
+    var originalSlowest = document.querySelector('#slowestPanel tbody').innerHTML;
+    document.getElementById('versionVisibility').hidden = false;
+    var visibilityOptions = document.getElementById('versionVisibilityOptions');
+    history.forEach(function (entry, index) {
+      var label = document.createElement('label');
+      var checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = !hiddenVersions.has(index);
+      checkbox.dataset.versionIndex = index;
+      checkbox.addEventListener('change', function () {
+        if (checkbox.checked) hiddenVersions.delete(index); else hiddenVersions.add(index);
+        saveVisibility();
+        refreshVersions();
+      });
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode(entry.version || entry.timestamp));
+      visibilityOptions.appendChild(label);
+    });
+    document.getElementById('restoreVersions').addEventListener('click', function () {
+      hiddenVersions.clear();
+      saveVisibility();
+      refreshVersions();
+    });
+    selects.forEach(function (versionSelect) {
+      versionSelect.addEventListener('change', function () {
+        currentVersion = Number(versionSelect.value);
+        refreshVersions();
+      });
+    });
+
+    function visibleIndices() {
+      return history.map(function (_, index) { return index; }).filter(function (index) { return !hiddenVersions.has(index); });
+    }
+    function saveVisibility() {
+      try { localStorage.setItem(storageKey, JSON.stringify(Array.from(hiddenVersions))); }
+      catch (error) { canPersist = false; }
+    }
+    function refreshVersions() {
+      var indices = visibleIndices();
+      if (indices.indexOf(currentVersion) === -1) currentVersion = indices.length ? indices[indices.length - 1] : null;
+      selects.forEach(function (versionSelect) {
+        versionSelect.replaceChildren();
+        indices.forEach(function (index) {
+          var option = document.createElement('option');
+          option.value = index;
+          option.textContent = history[index].version || history[index].timestamp;
+          versionSelect.appendChild(option);
+        });
+        versionSelect.value = String(currentVersion);
+      });
+      visibilityOptions.querySelectorAll('input').forEach(function (input) { input.checked = !hiddenVersions.has(Number(input.dataset.versionIndex)); });
+      document.getElementById('visibleVersionCount').textContent = '(' + indices.length + '/' + history.length + ')';
+      document.getElementById('visibilityPersistence').textContent = canPersist
+        ? 'Preferência salva neste navegador para este relatório.'
+        : 'Neste modo, a preferência vale enquanto esta página estiver aberta.';
+      document.getElementById('noVisibleVersions').hidden = indices.length > 0;
+      document.body.classList.toggle('no-visible-versions', !indices.length);
+      updateHistoryChart(indices);
+      updateFlaky(indices);
+      if (!indices.length) {
+        document.getElementById('failuresTabCount').textContent = '0';
+        return;
+      }
+      updateGlobalView();
+      document.querySelectorAll('.version-context').forEach(function (context) {
+        context.textContent = (currentVersion === detailedVersion ? 'Detalhes da execução atual' : 'Resumo histórico — detalhes completos indisponíveis') + ' · filtro: ' + (history[currentVersion].version || history[currentVersion].timestamp);
+      });
+      renderVersion();
+    }
+    function updateHistoryChart(indices) {
+      if (!reportTrendChart) return;
+      reportTrendChart.data.labels = indices.map(function (index) { var entry = history[index]; return (entry.version || entry.timestamp).replace('T', ' '); });
+      ['passed', 'failed', 'skipped', 'total'].forEach(function (field, dataset) {
+        reportTrendChart.data.datasets[dataset].data = indices.map(function (index) { return history[index][field] || 0; });
+      });
+      reportTrendChart.update();
+    }
+    function updateFlaky(indices) {
+      var panel = document.getElementById('flakyPanel');
+      if (!panel) return;
+      var runs = new Map();
+      indices.forEach(function (index) {
+        (history[index].tests || []).forEach(function (test) {
+          if (!runs.has(test.stable_id)) runs.set(test.stable_id, []);
+          runs.get(test.stable_id).push(test);
+        });
+      });
+      var rows = [];
+      runs.forEach(function (tests) {
+        var prev = null, flips = 0, passed = 0, failed = 0;
+        tests.forEach(function (test) {
+          if (test.status === 'PASS') passed++;
+          if (test.status === 'FAIL') failed++;
+          if (test.status === 'PASS' || test.status === 'FAIL') {
+            if (prev && prev !== test.status) flips++;
+            prev = test.status;
+          }
+        });
+        if (flips && passed && failed) rows.push({test: tests[tests.length - 1], flips: flips, passed: passed, failed: failed, stability: Math.max(0, (1 - flips / tests.length) * 100)});
+      });
+      rows.sort(function (a, b) { return b.flips - a.flips || a.stability - b.stability; });
+      var tbody = panel.querySelector('tbody');
+      tbody.replaceChildren();
+      rows.forEach(function (row) {
+        var tr = document.createElement('tr');
+        [row.test.test_name, row.test.suite_name, row.flips, row.passed, row.failed, row.stability.toFixed(1) + '%'].forEach(function (value) {
+          var td = document.createElement('td'); td.textContent = value; tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      panel.hidden = !rows.length;
+    }
+
+    function updateGlobalView() {
+      var selected = history[currentVersion];
+      var isCurrent = currentVersion === detailedVersion;
+      document.getElementById('metricTotal').textContent = selected.total || 0;
+      document.getElementById('metricPassed').textContent = selected.passed || 0;
+      document.getElementById('metricFailed').textContent = selected.failed || 0;
+      document.getElementById('metricSkipped').textContent = selected.skipped || 0;
+      document.getElementById('metricPassRate').textContent = (selected.pass_rate || 0) + '%';
+      document.getElementById('metricElapsed').textContent = Number(selected.elapsed_s || 0).toFixed(1) + 's';
+      document.getElementById('failuresTabCount').textContent = selected.failed || 0;
+
+      if (!isCurrent) {
+        renderFeatures(selected.tests || []);
+      } else {
+        document.getElementById('featuresTableBody').innerHTML = originalFeatures;
+      }
+      var slowestBody = document.querySelector('#slowestPanel tbody');
+      if (isCurrent) slowestBody.innerHTML = originalSlowest;
+      else {
+        slowestBody.replaceChildren();
+        (selected.tests || []).slice().sort(function (a, b) { return (b.elapsed_s || 0) - (a.elapsed_s || 0); }).slice(0, 10).forEach(function (test) {
+          var row = document.createElement('tr');
+          [test.test_name, test.suite_name, test.status, Number(test.elapsed_s || 0).toFixed(2) + 's'].forEach(function (value) {
+            var cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell);
+          });
+          slowestBody.appendChild(row);
+        });
+      }
+      document.querySelectorAll('.delta-tag').forEach(function (tag) { tag.hidden = currentVersion !== history.length - 1 || hiddenVersions.size > 0; });
+      document.querySelectorAll('#suitesContainer, #tab-dev .tree-toolbar, #tab-dev .tags-panel, #noTestsFoundMsg').forEach(function (element) { element.hidden = !isCurrent; });
+      REPORT_STATS.total = selected.total || 0;
+      REPORT_STATS.passed = selected.passed || 0;
+      REPORT_STATS.failed = selected.failed || 0;
+      REPORT_STATS.skipped = selected.skipped || 0;
+      REPORT_STATS.passRate = selected.pass_rate || 0;
+      REPORT_STATS.elapsed = Number(selected.elapsed_s || 0);
+      REPORT_STATS.version = selected.version || selected.timestamp;
+      if (reportDonutChart) {
+        reportDonutChart.data.datasets[0].data = [REPORT_STATS.passed, REPORT_STATS.failed, REPORT_STATS.skipped];
+        reportDonutChart.update();
+      }
+
+      document.getElementById('technicalVersionNotice').style.display = isCurrent ? 'none' : 'block';
+      var currentFailures = document.getElementById('currentFailures');
+      var historicalFailures = document.getElementById('historicalFailures');
+      currentFailures.style.display = isCurrent ? 'block' : 'none';
+      historicalFailures.style.display = isCurrent ? 'none' : 'block';
+      historicalFailures.innerHTML = '';
+      if (!isCurrent) {
+        var failedTests = (selected.tests || []).filter(function (test) { return test.status === 'FAIL'; });
+        if (!failedTests.length) {
+          historicalFailures.textContent = 'Nenhuma falha registrada nesta versão.';
+        } else {
+          failedTests.forEach(function (test) {
+            var card = document.createElement('div');
+            card.className = 'failure-card';
+            card.innerHTML = '<h3>' + escapeHtml(test.test_name) + '</h3><div class="failure-step">Suíte: ' + escapeHtml(test.suite_name) + '</div><div class="failure-message">Detalhes da mensagem não foram persistidos para esta versão histórica.</div>';
+            historicalFailures.appendChild(card);
+          });
+        }
+      }
+    }
+
+    function renderFeatures(tests) {
+      var body = document.getElementById('featuresTableBody');
+      var features = {};
+      tests.forEach(function (test) {
+        var suiteName = test.suite_name || 'Sem suíte';
+        if (!features[suiteName]) { features[suiteName] = { total: 0, pass: 0, fail: 0, skip: 0 }; }
+        features[suiteName].total += 1;
+        if (test.status === 'PASS') { features[suiteName].pass += 1; }
+        if (test.status === 'FAIL') { features[suiteName].fail += 1; }
+        if (test.status === 'SKIP') { features[suiteName].skip += 1; }
+      });
+      body.innerHTML = '';
+      Object.keys(features).forEach(function (suiteName) {
+        var feature = features[suiteName];
+        var row = document.createElement('tr');
+        row.innerHTML = '<td>' + escapeHtml(suiteName) + '</td><td>' + feature.total + '</td><td>' + feature.pass + '</td><td>' + feature.fail + '</td><td>' + feature.skip + '</td>';
+        body.appendChild(row);
+      });
+    }
+
+    function renderVersion() {
+      var index = currentVersion;
+      var current = history[index];
+      var visible = visibleIndices();
+      var position = visible.indexOf(index);
+      var previous = position > 0 ? history[visible[position - 1]] : null;
+      var previousTests = {};
+      var currentTests = {};
+      (previous && previous.tests || []).forEach(function (test) { previousTests[test.stable_id] = test; });
+      body.innerHTML = '';
+      var tests = current.tests || [];
+      empty.style.display = tests.length ? 'none' : 'block';
+      summary.textContent = (current.total || 0) + ' cenários · ' + (current.pass_rate || 0) + '% de sucesso';
+      tests.forEach(function (test) {
+        currentTests[test.stable_id] = true;
+        var before = previousTests[test.stable_id];
+        var comparison = before ? (before.status === test.status ? 'Mantido' : 'Status alterado') : 'Adicionado';
+        var comparisonClass = comparison === 'Adicionado' ? 'status-added' : (comparison === 'Status alterado' && test.status === 'FAIL' ? 'status-regressed' : 'status-kept');
+        var row = document.createElement('tr');
+        row.innerHTML = '<td>' + escapeHtml(test.test_name) + '</td><td>' + escapeHtml(test.suite_name) + '</td><td><span class="badge ' + test.status.replace(' ', '_') + '">' + test.status + '</span></td><td class="' + comparisonClass + '">' + comparison + '</td><td>' + Number(test.elapsed_s || 0).toFixed(2) + 's</td>';
+        body.appendChild(row);
+      });
+      (previous && previous.tests || []).forEach(function (test) {
+        if (currentTests[test.stable_id]) { return; }
+        var row = document.createElement('tr');
+        row.innerHTML = '<td>' + escapeHtml(test.test_name) + '</td><td>' + escapeHtml(test.suite_name) + '</td><td><span class="badge">-</span></td><td class="status-removed">Removido</td><td>-</td>';
+        body.appendChild(row);
+      });
+    }
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, function (char) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]; });
+    }
+
+    refreshVersions();
+  })();
+</script>

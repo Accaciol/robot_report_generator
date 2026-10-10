@@ -17,3 +17,5 @@ select{font:inherit;border:1px solid #cedad3;border-radius:8px;padding:10px;back
 .error-list summary{overflow-wrap:anywhere}
 .error-list p{color:#a43827;font-size:13px;margin:10px 0}
 .error-list pre{margin:10px 0 0}
+.share-link{display:inline-block;text-decoration:none}
+.maintenance-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.maintenance-actions .file-label{margin:0;font-size:11px;color:var(--muted)}.maintenance-actions input{width:min(100%,260px);padding:8px;font-size:11px}hr{border:0;border-top:1px solid var(--line);margin:24px 0 18px}#maintenance-status{font-size:12px;margin:10px 0 0}

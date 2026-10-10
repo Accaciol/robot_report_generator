@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from html import unescape
 from pathlib import Path
 
@@ -201,6 +202,7 @@ class RobotOutputParser:
         self.errors: list[str] = []
         self.execution_start = None
         self.environment: dict[str, str] = {}
+        self.system_metadata: dict[str, str] = {}
 
     def parse(self) -> tuple[list[SuiteResult], ExecutionStats]:
         if not self.output_xml_path.exists():
@@ -218,6 +220,18 @@ class RobotOutputParser:
             "generator": getattr(result, "generator", "") or "Robot Framework",
             "rpa": "Sim" if getattr(result, "rpa", False) else "Não",
         }
+
+        # Robot Framework keeps suite metadata in output.xml. There is no
+        # standard system identifier, so accept a few conventional metadata
+        # labels and fall back to the root suite name as a user-editable hint.
+        raw_metadata = getattr(result.suite, "metadata", {}) or {}
+        metadata = {self._metadata_key(key): str(value).strip()
+                    for key, value in raw_metadata.items() if value is not None}
+        name = self._first_metadata(metadata, "system", "system name", "application", "application name")
+        name = name or str(getattr(result.suite, "name", "") or "").strip()
+        system_id = self._first_metadata(metadata, "system id", "system identifier", "application id")
+        system_id = self._slug(system_id) if system_id else self._slug(name)
+        self.system_metadata = {"system_name": name, "system_id": system_id}
 
         visitor = _CollectorVisitor()
         try:
@@ -251,6 +265,21 @@ class RobotOutputParser:
             stats = self._stats_from_suites(visitor.root_suites)
 
         return visitor.root_suites, stats
+
+    @staticmethod
+    def _metadata_key(value: object) -> str:
+        return " ".join(re.sub(r"[^a-z0-9]+", " ", str(value).casefold()).split())
+
+    @classmethod
+    def _first_metadata(cls, metadata: dict[str, str], *keys: str) -> str:
+        return next((metadata[cls._metadata_key(key)] for key in keys
+                     if metadata.get(cls._metadata_key(key))), "")
+
+    @staticmethod
+    def _slug(value: str) -> str:
+        ascii_value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().lower()
+        slug = re.sub(r"[^a-z0-9]+", "-", ascii_value).strip("-")
+        return slug or "sistema"
 
     @staticmethod
     def _safe_suite_elapsed(suite) -> float:  # noqa: ANN001

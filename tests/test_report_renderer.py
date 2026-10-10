@@ -102,6 +102,21 @@ class TestReportRenderer(unittest.TestCase):
         self.assertEqual(self.output_html.read_text(encoding="utf-8"), "relatório anterior")
         self.assertEqual(list(self.base_dir.glob(".output.html.*")), [])
 
+    def test_artifact_outside_results_is_not_embedded(self):
+        results = self.base_dir / "results"
+        results.mkdir()
+        (self.base_dir / "secret.png").write_bytes(b"private-content")
+        artifact = Artifact(kind="image", original_path="../secret.png")
+        keyword = KeywordResult(name="Screenshot", status=Status.FAIL, artifacts=[artifact])
+        suite = SuiteResult(name="Suite", tests=[TestResult(
+            name="Test", status=Status.FAIL, keywords=[keyword],
+        )])
+        data = ReportData(stats=ExecutionStats(total=1, failed=1), suites=[suite],
+                          history=[], generated_at="01/10/2026 12:00:00")
+        html = ReportRenderer(base_dir=results).render_html(data)
+        self.assertTrue(artifact.missing)
+        self.assertNotIn("cHJpdmF0ZS1jb250ZW50", html)
+
 
 if __name__ == "__main__":
     unittest.main()

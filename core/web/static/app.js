@@ -1,305 +1,111 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const labels = {waiting:'Aguardando', running:'Executando', completed:'Concluído', failed:'Falhou', cancelled:'Cancelado'};
 const fragment = new URLSearchParams(location.hash.slice(1));
 const token = fragment.get('token') || sessionStorage.getItem('robot-session') || '';
 if (token) sessionStorage.setItem('robot-session', token);
 history.replaceState(null, '', location.pathname);
-let folders = [], active = false, connected = false, stopped = false, submitting = false;
-let runId = null, generation = 0, home = '', selectionMode = 'results', selectedFolder = null, browseSequence = 0;
-let lastJobs = '', lastErrors = '', historySequence = 0, historyBusy = false, lastHistoryCompletedRun = null;
-let knownSystems = [];
-
-function selectedSystem() {
-  const systemId = $('system-id').value.trim();
-  const name = $('system-name').value.trim();
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(systemId)) throw new Error('Informe um identificador válido para a aplicação.');
-  if (!name) throw new Error('Informe o nome da aplicação.');
-  return {system_id: systemId, name};
-}
-async function refreshSystems() {
-  const data = await api('/api/systems');
-  knownSystems = data.systems;
-  const select = $('system-select'), previous = select.value;
-  select.replaceChildren(new Option('Nova aplicação', ''));
-  knownSystems.forEach(system => select.add(new Option(system.name, system.id)));
-  if (knownSystems.some(system => system.id === previous)) select.value = previous;
-}
-async function refreshOverview() {
-  const data = await api('/api/overview?period=' + encodeURIComponent($('overview-period').value));
-  $('overview-summary').textContent = `${data.applications.length} aplicação(ões) · ${data.latest.total} cenários nas execuções mais recentes · ${data.latest.pass_rate}% de aprovação`;
-  $('overview-applications').replaceChildren();
-  data.applications.forEach(app => {
-    const item = document.createElement('li'), label = document.createElement('div');
-    label.className = 'item-text';
-    const name = document.createElement('strong'), details = document.createElement('small');
-    name.textContent = app.name;
-    details.textContent = `${app.executions} execuções · ${app.total} cenários na última · ${app.pass_rate}% de aprovação`;
-    label.append(name, details); item.append(label); $('overview-applications').append(item);
-  });
-  $('overview-trend').replaceChildren();
-  data.trend.forEach(day => {
-    const item = document.createElement('li');
-    item.textContent = `${day.date} · ${day.executions} execuções · ${day.total} cenários · ${day.pass_rate}% de aprovação`;
-    $('overview-trend').append(item);
-  });
-}
-$('overview-period').onchange = () => refreshOverview().catch(error => notice(error.message));
-$('system-select').onchange = () => {
-  const selected = knownSystems.find(system => system.id === $('system-select').value);
-  $('system-id').value = selected ? selected.id : '';
-  $('system-name').value = selected ? selected.name : '';
-};
-$('migrate-history').onclick = async () => {
-  try {
-    const system = selectedSystem();
-    if (knownSystems.some(item => item.id === system.system_id)) throw new Error('Escolha um identificador novo para a migração.');
-    const result = await api('/api/catalog/migrate', {...system, source:$('migration-source').value, history:$('history').value});
-    notice(result.warning || 'Histórico migrado. O arquivo antigo foi preservado.');
-    await refreshSystems(); await refreshOverview();
-  } catch (error) {notice(error.message);}
-};
-
-const diagnosticTabs = [$('tab-log'), $('tab-errors')];
-function selectDiagnosticTab(tab) {
-  diagnosticTabs.forEach(button => {
-    const selected = button === tab;
-    button.setAttribute('aria-selected', String(selected));
-    button.tabIndex = selected ? 0 : -1;
-    $(button.getAttribute('aria-controls')).hidden = !selected;
-  });
-}
-diagnosticTabs.forEach((button, index) => {
-  button.onclick = () => selectDiagnosticTab(button);
-  button.onkeydown = event => {
-    let next = index;
-    if (event.key === 'ArrowRight') next = (index + 1) % diagnosticTabs.length;
-    else if (event.key === 'ArrowLeft') next = (index + diagnosticTabs.length - 1) % diagnosticTabs.length;
-    else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = diagnosticTabs.length - 1;
-    else return;
-    event.preventDefault();
-    selectDiagnosticTab(diagnosticTabs[next]);
-    diagnosticTabs[next].focus();
-  };
-});
-
-function showErrors(errors) {
-  const signature = JSON.stringify(errors);
-  if (signature === lastErrors) return;
-  lastErrors = signature;
-  $('error-count').textContent = `(${errors.length})`;
-  $('error-empty').hidden = errors.length > 0;
-  $('error-entries').replaceChildren();
-  errors.slice().reverse().forEach(error => {
-    const li = document.createElement('li'), details = document.createElement('details');
-    const summary = document.createElement('summary'), message = document.createElement('p');
-    const log = document.createElement('pre');
-    summary.textContent = `${error.timestamp.replace('T', ' ')} · ${error.folder}`;
-    message.textContent = error.message;
-    log.textContent = error.log || 'Sem detalhes adicionais no log.';
-    details.append(summary, message, log); li.append(details); $('error-entries').append(li);
-  });
-}
-
-function notice(message) { $('notice').textContent = message; $('notice').hidden = !message; }
+let connected = false, active = false, stopped = false, submitting = false, runId = null, uploadId = null, generation = 0, lastJobs = '', lastErrors = '', refreshedRun = null;
+let systems = [];
+function notice(message) { $('notice').textContent = message || ''; $('notice').hidden = !message; }
 async function api(path, data) {
-  const response = await fetch(path, {method:data === undefined ? 'GET':'POST', headers:{'X-Session-Token':token, 'Content-Type':'application/json'}, body:data === undefined ? undefined:JSON.stringify(data)});
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || 'Não foi possível completar a operação.');
-  return result;
+  const response = await fetch(path, {method:data === undefined ? 'GET':'POST', headers:{'X-Session-Token':token, ...(data === undefined ? {}:{'Content-Type':'application/json'})}, body:data === undefined ? undefined:JSON.stringify(data)});
+  const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Não foi possível completar a operação.'); return result;
 }
 function controls() {
   $('configuration').disabled = !connected || active || submitting || stopped;
-  $('generate').disabled = !connected || active || submitting || stopped || !folders.length;
-  $('cancel').disabled = !active || stopped;
-  $('shutdown').disabled = !connected || stopped;
-  $('refresh-history').disabled = !connected || stopped || historyBusy;
-  document.querySelectorAll('#history-entries button').forEach(button => {button.disabled = active || stopped || historyBusy;});
+  $('preview').disabled = !connected || active || submitting || stopped || !$('zip-file').files.length;
+  $('import').disabled = !connected || active || submitting || stopped || !uploadId;
+  $('cancel').disabled = !active || stopped; $('shutdown').disabled = !connected || stopped;
 }
-async function refreshHistory() {
-  const path = $('history').value.trim();
-  const sequence = ++historySequence;
-  $('history-entries').replaceChildren();
-  $('history-status').textContent = 'Carregando histórico…';
-  if (!path) { $('history-status').textContent = 'Informe o arquivo de histórico.'; return; }
+function dateInput(value) {
+  if (!value) return '';
+  const match = String(value).match(/^(\d{4})[- ]?(\d{2})[- ]?(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) return '';
+  return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}`;
+}
+function applySystemSuggestion(result) {
+  const suggestedId = result.system_id || '';
+  const suggestedName = result.system_name || '';
+  const match = systems.find(system => system.id === suggestedId) || (!suggestedId &&
+    systems.find(system => suggestedName && system.name.trim().toLocaleLowerCase() === suggestedName.trim().toLocaleLowerCase()));
+  $('system-select').value = match?.id || '';
+  $('system-id').value = match?.id || suggestedId;
+  $('system-name').value = match?.name || suggestedName;
+}
+async function refreshSystems(preferredId = '') {
+  const result = await api('/api/systems'); systems = result.systems;
+  for (const id of ['system-select','history-system']) {
+    const select = $(id), previous = select.value;
+    select.replaceChildren(new Option(id === 'system-select' ? 'Novo sistema':'Selecione um sistema', ''));
+    systems.forEach(system => select.add(new Option(`${system.name} · ${system.id}`, system.id)));
+    const preferred = id === 'system-select' ? preferredId : '';
+    if (preferred && systems.some(system => system.id === preferred)) select.value = preferred;
+    else if (systems.some(system => system.id === previous)) select.value = previous;
+    else if (systems.length === 1) select.value = systems[0].id;
+    if (id === 'system-select' && select.value) {
+      const system = systems.find(item => item.id === select.value);
+      $('system-id').value = system.id;
+      $('system-name').value = system.name;
+    }
+  }
+}
+$('system-select').onchange = () => {
+  const system = systems.find(item => item.id === $('system-select').value);
+  $('system-id').value = system?.id || ''; $('system-name').value = system?.name || '';
+};
+$('preview').onclick = async () => {
+  const file = $('zip-file').files[0]; if (!file) return;
+  submitting=true; uploadId=null; controls(); notice(''); $('preview-status').textContent='Enviando e analisando ZIP…';
   try {
-    const data = await api('/api/history?path=' + encodeURIComponent(path));
-    if (sequence !== historySequence) return;
-    $('history-status').textContent = data.entries.length ? `${data.entries.length} versão(ões) salva(s)` : 'Nenhuma versão salva neste arquivo.';
-    data.entries.slice().reverse().forEach(entry => {
-      const li = document.createElement('li'), info = document.createElement('div'), title = document.createElement('strong'), detail = document.createElement('small'), button = document.createElement('button');
-      info.className = 'item-text'; title.textContent = entry.version || entry.timestamp;
-      detail.textContent = `${entry.timestamp} · ${entry.total} cenários · ${entry.pass_rate}% de sucesso`;
-      info.append(title, detail);
-      button.type = 'button'; button.className = 'secondary danger'; button.textContent = 'Remover';
-      button.setAttribute('aria-label', `Remover versão ${title.textContent}`);
-      button.onclick = async () => {
-        if (!confirm(`Remover a versão "${title.textContent}" do histórico? Esta ação não pode ser desfeita.`)) return;
-        historyBusy = true; controls(); notice('');
-        try {
-          await api('/api/history/remove', {path, index:entry.index, timestamp:entry.timestamp, version:entry.version});
-          if (path === $('history').value.trim()) await refreshHistory();
-        } catch (error) { notice(error.message); await refreshHistory(); }
-        finally { historyBusy = false; controls(); }
-      };
-      li.append(info, button); $('history-entries').append(li);
-    });
-    controls();
-  } catch (error) { if (sequence === historySequence) $('history-status').textContent = error.message; }
+    const form=new FormData(); form.append('file',file);
+    const response=await fetch('/api/imports/preview',{method:'POST',headers:{'X-Session-Token':token},body:form});
+    const result=await response.json(); if(!response.ok) throw new Error(result.error || 'Falha ao analisar ZIP.');
+    uploadId=result.upload_id; $('preview-status').textContent=`${result.total} cenários · ${result.passed} aprovados · ${result.failed} falharam · ${result.skipped} ignorados`;
+    $('preview-details').hidden=false; $('preview-details').textContent=`ZIP válido · ${result.output_xml || 'output.xml'} encontrado · ${result.archive_members} arquivos no total · ${result.evidence_files} evidência(s).${result.errors?.length ? ` Avisos: ${result.errors.join(' · ')}` : ''}`;
+    applySystemSuggestion(result);
+    if (result.execution_date) $('execution-date').value=dateInput(result.execution_date);
+  } catch(error) {$('preview-status').textContent='';notice(error.message);}
+  finally{submitting=false;controls();}
+};
+$('zip-file').onchange=()=>{uploadId=null;$('preview-status').textContent='';$('preview-details').hidden=true;controls();};
+$('import').onclick = async () => {
+  const id=$('system-id').value.trim(), name=$('system-name').value.trim(), version=$('system-version').value.trim();
+  if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) return notice('Informe um identificador válido para o sistema.');
+  if(!name||!version) return notice('Informe o nome e a versão do produto.');
+  if(!$('execution-date').value) return notice('Informe a data e hora da execução.');
+  submitting=true;controls();notice('');
+  try {const result=await api('/api/imports',{upload_id:uploadId,system_id:id,system_name:name,system_version:version,execution_date:$('execution-date').value});runId=result.run_id;active=true;uploadId=null;$('summary').textContent='Importação iniciada…';}
+  catch(error){notice(error.message);} finally{submitting=false;controls();}
+};
+function showErrors(errors) {
+  const signature=JSON.stringify(errors);if(signature===lastErrors)return;lastErrors=signature;$('error-count').textContent=`(${errors.length})`;$('error-empty').hidden=errors.length>0;$('error-entries').replaceChildren();
+  errors.slice().reverse().forEach(error=>{const li=document.createElement('li'),details=document.createElement('details'),summary=document.createElement('summary'),message=document.createElement('p'),log=document.createElement('pre');summary.textContent=`${error.timestamp.replace('T',' ')} · ${error.folder}`;message.textContent=error.message;log.textContent=error.log||'Sem detalhes adicionais.';details.append(summary,message,log);li.append(details);$('error-entries').append(li);});
 }
-$('refresh-history').onclick = refreshHistory;
-$('history').addEventListener('change', refreshHistory);
-function queueView() {
-  $('queue').replaceChildren();
-  folders.forEach((source, index) => {
-    const path = source.path;
-    const li = document.createElement('li'), text = document.createElement('div'), strong = document.createElement('strong'), small = document.createElement('small'), button = document.createElement('button');
-    text.className = 'item-text'; strong.textContent = path.split(/[\\/]/).filter(Boolean).pop() || path; small.textContent = source.name + ' · ' + path;
-    text.append(strong, small); button.textContent = 'Remover'; button.className = 'quiet'; button.setAttribute('aria-label', `Remover ${path}`);
-    button.onclick = () => {folders.splice(index, 1); queueView();}; li.append(text, button); $('queue').append(li);
-  });
-  $('empty').hidden = !!folders.length;
-  if (!runId) $('summary').textContent = folders.length ? `${folders.length} pasta(s) na fila` : 'Pronto para começar';
+function showState(data) {
+  runId=data.run_id;active=data.active;$('results').hidden=!runId;
+  if(active){const current=data.items.find(item=>item.status==='running');$('detail').textContent=current?`Registrando métricas e salvando artefatos · ${current.system_name||current.system_id||current.folder}`:'Importação na fila; aguardando processamento.';}
+  else if(runId){const failures=data.items.filter(item=>item.status==='failed').length;$('detail').textContent=failures?`${failures} item(ns) precisam de atenção. Consulte Erros e logs para ver o motivo.`:'Dados gravados no SQLite; o relatório compartilhado já mostra os resultados atualizados.';}
+  if(runId && !active && refreshedRun!==runId){refreshedRun=runId;refreshSystems(data.items[0]?.system_id || '').then(()=>$('refresh-history').onclick()).catch(error=>notice(error.message));}
+  const done=data.items.filter(item=>!['waiting','running'].includes(item.status)).length;$('progress').max=data.items.length||1;$('progress').value=done;
+  const signature=JSON.stringify(data.items);
+  if(signature!==lastJobs){lastJobs=signature;$('jobs').replaceChildren();data.items.forEach(item=>{const li=document.createElement('li'),info=document.createElement('div'),strong=document.createElement('strong'),small=document.createElement('small'),badge=document.createElement('span');info.className='item-text';strong.textContent=item.folder;small.textContent=item.error|| (item.status==='completed'?'Os dados estão disponíveis no link público.':'Aguardando importação no SQLite.');info.append(strong,small);badge.className='badge '+item.status;badge.textContent={waiting:'Aguardando',running:'Importando',completed:'Concluído',failed:'Falhou',cancelled:'Cancelado'}[item.status];li.append(info,badge);
+    if(item.status==='completed'){const a=document.createElement('a');a.textContent='Abrir link fixo';a.href=item.report_url||'/public';a.target='_blank';a.rel='noopener noreferrer';li.append(a);} $('jobs').append(li);});}
+  $('logs').textContent=data.logs.join('\n')||'Nenhuma execução iniciada.';showErrors(data.errors||[]);
+  if(runId){const failed=data.items.filter(x=>x.status==='failed').length;$('summary').textContent=active?`Importando · ${done} de ${data.items.length} finalizados`:failed?`Finalizado com ${failed} falha(s)`:'Importação concluída';}
+  else {$('summary').textContent='Pronto para importar';$('detail').textContent='Selecione o ZIP e clique em “Enviar e analisar ZIP” para continuar.';}
   controls();
 }
-async function browse(path) {
-  const sequence = ++browseSequence;
-  selectedFolder = null; $('select-folder').disabled = true; $('folder-error').textContent = ''; $('folder-status').textContent = 'Carregando…'; $('folders').replaceChildren();
-  try {
-    const data = await api('/api/folders?path=' + encodeURIComponent(path));
-    if (sequence !== browseSequence) return;
-    selectedFolder = data; $('folder-path').value = data.path;
-    $('parent-folder').disabled = data.path === data.parent;
-    $('folder-status').textContent = data.has_output ? 'output.xml encontrado' : 'Sem output.xml';
-    $('select-folder').disabled = selectionMode === 'results' && !data.has_output;
-    data.folders.forEach(folder => {
-      const li = document.createElement('li'), button = document.createElement('button');
-      button.type = 'button'; button.textContent = folder.name; button.onclick = () => browse(folder.path); li.append(button); $('folders').append(li);
-    });
-    if (!data.folders.length) { const li = document.createElement('li'); li.textContent = 'Nenhuma subpasta.'; $('folders').append(li); }
-  } catch (error) { if (sequence === browseSequence) { $('folder-error').textContent = error.message; $('folder-status').textContent = ''; } }
-}
-function openPicker(mode) {
-  selectionMode = mode;
-  $('folder-title').textContent = mode === 'results' ? 'Adicionar pasta de resultados' : 'Selecionar pasta de destino';
-  $('select-folder').textContent = mode === 'results' ? 'Adicionar à fila' : 'Usar esta pasta';
-  $('folder-dialog').showModal(); browse(mode === 'destination' ? $('destination').value : home);
-}
-$('add-folder').onclick = () => openPicker('results');
-$('choose-destination').onclick = () => openPicker('destination');
-$('choose-history').onclick = () => openPicker('history');
-$('folder-form').onsubmit = event => {event.preventDefault(); browse($('folder-path').value);};
-$('close-dialog').onclick = () => $('folder-dialog').close();
-$('parent-folder').onclick = () => {if (selectedFolder) browse(selectedFolder.parent);};
-$('select-folder').onclick = () => {
-  if (!selectedFolder) return;
-  const path = selectedFolder.path;
-  if (selectionMode === 'results') {
-    try {
-      const system = selectedSystem();
-      if (!folders.some(source => source.path === path)) folders.push({path, ...system});
-      queueView();
-    } catch (error) {notice(error.message); return;}
-  }
-  else if (selectionMode === 'destination') $('destination').value = path;
-  else $('history').value = path.replace(/[\\/]$/, '') + (path.includes('\\') ? '\\':'/') + 'robot-report-history.json';
-  $('folder-dialog').close();
-  if (selectionMode === 'history') refreshHistory();
-};
-function showState(data) {
-  runId = data.run_id; active = data.active;
-  if (runId && !active && lastHistoryCompletedRun !== runId) {
-    lastHistoryCompletedRun = runId;
-    refreshHistory();
-    refreshSystems().then(refreshOverview).catch(error => notice(error.message));
-  }
-  $('results').hidden = !runId;
-  const done = data.items.filter(item => !['waiting','running'].includes(item.status)).length;
-  $('progress').max = data.items.length || 1; $('progress').value = done;
-  const signature = JSON.stringify(data.items);
-  if (signature !== lastJobs) {
-    lastJobs = signature; $('jobs').replaceChildren();
-    data.items.forEach(item => {
-      const li = document.createElement('li'), text = document.createElement('div'), name = document.createElement('strong'), detail = document.createElement('small'), badge = document.createElement('span');
-      text.className = 'item-text'; name.textContent = item.folder; detail.textContent = item.error || item.report; text.append(name, detail);
-      badge.className = 'badge ' + item.status; badge.textContent = labels[item.status]; li.append(text, badge);
-      if (item.status === 'completed') {
-        const links = document.createElement('div'); links.className = 'report-links';
-        [['Abrir', ''], ['Baixar', '?download=1']].forEach(([label, suffix]) => {
-          const a = document.createElement('a'); a.textContent = label; a.href = '/reports/' + encodeURIComponent(item.id) + suffix;
-          if (!suffix) {a.target = '_blank'; a.rel = 'noopener noreferrer';} else a.setAttribute('download', '');
-          links.append(a);
-        });
-        const pdfButton = document.createElement('button');
-        pdfButton.type = 'button'; pdfButton.className = 'secondary'; pdfButton.textContent = 'Gerar PDF';
-        pdfButton.setAttribute('aria-label', `Gerar PDF de ${item.folder}`);
-        pdfButton.onclick = async () => {
-          pdfButton.disabled = true; notice('');
-          try {
-            const response = await fetch('/api/reports/' + encodeURIComponent(item.id) + '/pdf', {
-              method:'POST', headers:{'X-Session-Token':token}
-            });
-            if (!response.ok) {
-              const error = await response.json();
-              throw new Error(error.error || 'Não foi possível gerar o PDF.');
-            }
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url; link.download = item.report.split(/[\\/]/).pop().replace(/\.html$/i, '.pdf');
-            document.body.append(link); link.click(); link.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 60000);
-          } catch (error) { notice(error.message); }
-          finally { pdfButton.disabled = false; }
-        };
-        links.append(pdfButton); li.append(links);
-      }
-      $('jobs').append(li);
-    });
-  }
-  const logText = data.logs.join('\n') || 'Nenhuma execução iniciada.';
-  if ($('logs').textContent !== logText) { $('logs').textContent = logText; $('logs').scrollTop = $('logs').scrollHeight; }
-  showErrors(data.errors || []);
-  if (runId) {
-    const failures = data.items.filter(item => item.status === 'failed').length;
-    const cancelled = data.items.some(item => item.status === 'cancelled');
-    $('summary').textContent = data.cancelling ? 'Cancelando… aguardando o processo encerrar' : active ? `Processando · ${done} de ${data.items.length} finalizados` : cancelled ? 'Execução cancelada' : failures ? `Finalizado com ${failures} falha(s)` : 'Relatórios concluídos';
-  }
-  controls(); if (data.cancelling) $('cancel').disabled = true;
-}
-async function poll() {
-  if (stopped) return;
-  const epoch = generation;
-  try {const data = await api('/api/state'); if (epoch === generation && !submitting && !stopped) {connected = true; showState(data);}}
-  catch (error) {if (!stopped) {connected = false; controls(); notice('Conexão interrompida. Verifique se o servidor continua aberto.');}}
-  if (!stopped) setTimeout(poll, 700);
-}
-$('generate').onclick = async () => {
-  submitting = true; ++generation; controls(); notice('');
-  try {
-    const data = await api('/api/runs', {folders, destination:$('destination').value, history:$('history').value});
-    runId = data.run_id; active = true; ++generation; $('summary').textContent = 'Iniciando geração…';
-  } catch (error) {notice(error.message);}
-  finally {submitting = false; controls();}
-};
-$('cancel').onclick = async () => {
-  $('cancel').disabled = true;
-  try {await api('/api/cancel', {run_id:runId});} catch (error) {notice(error.message);}
-};
-$('shutdown').onclick = async () => {
-  if (active && !confirm('Encerrar o servidor e cancelar os itens ainda em processamento?')) return;
-  try {
-    await api('/api/shutdown', {}); stopped = true; ++generation; controls();
-    $('summary').textContent = 'Servidor encerrando'; $('detail').textContent = 'Você pode fechar esta aba. Para voltar, execute robot-report-gui.';
-  } catch (error) {notice(error.message);}
-};
-(async () => {
-  try {
-    const defaults = await api('/api/session', {}); home = defaults.home;
-    $('destination').value = defaults.destination; $('history').value = defaults.history;
-    await refreshSystems(); await refreshOverview();
-    connected = true; queueView(); poll();
-    refreshHistory();
-  } catch (error) {notice(error.message); $('summary').textContent = 'Não foi possível conectar';}
-})();
+async function poll(){if(stopped)return;const epoch=generation;try{const data=await api('/api/state');if(epoch===generation&&!submitting&&!stopped){connected=true;showState(data);}}catch(error){connected=false;controls();$('summary').textContent='Conexão interrompida';$('detail').textContent='Abra o link atual exibido nos logs do Docker para renovar a sessão.';notice(error.message || 'Conexão interrompida. Verifique se o servidor continua aberto.');}if(!stopped)setTimeout(poll,700);}
+$('cancel').onclick=async()=>{try{await api('/api/cancel',{run_id:runId});}catch(e){notice(e.message);}};
+$('shutdown').onclick=async()=>{if(active&&!confirm('Encerrar o servidor e cancelar os itens em processamento?'))return;try{await api('/api/shutdown',{});stopped=true;++generation;controls();$('summary').textContent='Servidor encerrando';}catch(e){notice(e.message);}};
+$('history-system').onchange=()=>$('refresh-history').onclick();
+let loadedHistory=[];
+function renderHistory(){const id=$('history-system').value,query=$('history-filter').value.trim().toLocaleLowerCase();const visible=loadedHistory.filter(entry=>`${entry.timestamp} ${entry.system_version} ${entry.version} ${entry.total} ${entry.failed} ${entry.pass_rate} ${entry.failed?'falha falhas fail':'aprovado pass'} ${entry.skipped?'ignorado skip':''}`.toLocaleLowerCase().includes(query));$('history-entries').replaceChildren();$('history-status').textContent=`${visible.length} de ${loadedHistory.length} execução(ões)`;visible.slice().reverse().forEach(entry=>{const li=document.createElement('li'),info=document.createElement('div'),title=document.createElement('strong'),small=document.createElement('small'),button=document.createElement('button');info.className='item-text';title.textContent=entry.system_version||entry.version||entry.timestamp;small.textContent=`${entry.timestamp} · ${entry.total} cenários · ${entry.passed} aprovados · ${entry.failed} falhas · ${entry.pass_rate}%`;info.append(title,small);button.className='secondary danger';button.textContent='Remover';button.onclick=async()=>{if(!confirm('Remover esta execução do histórico? Esta ação também remove os artefatos dessa execução quando não forem mais necessários.'))return;try{await api('/api/history/remove',{system_id:id,execution_id:entry.execution_id});await $('refresh-history').onclick();await refreshSystems();}catch(e){notice(e.message);}};li.append(info,button);$('history-entries').append(li);});}
+$('history-filter').oninput=renderHistory;
+$('refresh-history').onclick=async()=>{const id=$('history-system').value;if(!id)return;$('history-status').textContent='Carregando histórico…';try{const data=await api('/api/history?system_id='+encodeURIComponent(id));loadedHistory=data.entries;renderHistory();}catch(e){$('history-status').textContent=e.message;}};
+$('backup-database').onclick=async()=>{const status=$('maintenance-status');status.textContent='Preparando backup completo…';try{const response=await fetch('/api/database/backup',{headers:{'X-Session-Token':token},cache:'no-store'});if(!response.ok){const result=await response.json();throw new Error(result.error||'Falha ao criar backup.');}const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='robot-report-backup.zip';link.click();URL.revokeObjectURL(url);status.textContent='Backup completo baixado (SQLite e artefatos).';}catch(e){status.textContent=e.message;}};
+$('restore-database-button').onclick=async()=>{const file=$('restore-database').files[0];if(!file)return $('maintenance-status').textContent='Selecione um pacote ZIP de backup.';if(!confirm('Restaurar este backup substituirá o histórico e os arquivos atuais. Deseja continuar?'))return;const status=$('maintenance-status'),form=new FormData();form.append('file',file);status.textContent='Validando e restaurando backup…';try{const response=await fetch('/api/database/restore',{method:'POST',headers:{'X-Session-Token':token},body:form});const result=await response.json();if(!response.ok)throw new Error(result.error||'Falha ao restaurar backup.');status.textContent=`Backup restaurado · ${result.systems} sistema(s).`;await refreshSystems();if($('history-system').value)await $('refresh-history').onclick();}catch(e){status.textContent=e.message;}};
+$('cleanup-artifacts').onclick=async()=>{const status=$('maintenance-status');try{const scan=await api('/api/artifacts/orphans');if(!scan.count){status.textContent='Nenhum diretório órfão encontrado.';return;}if(!confirm(`${scan.count} pasta(s) de artefatos sem registro serão removidas:\n\n${scan.paths.slice(0,8).join('\n')}${scan.count>8?'\n…':''}\n\nContinuar?`)){status.textContent='Limpeza cancelada.';return;}const result=await api('/api/artifacts/cleanup',{});status.textContent=`${result.removed} pasta(s) órfã(s) removida(s).`;}catch(e){status.textContent=e.message;}};
+$('tab-log').onclick=()=>{ $('panel-log').hidden=false;$('panel-errors').hidden=true;$('tab-log').setAttribute('aria-selected','true');$('tab-errors').setAttribute('aria-selected','false');};
+$('tab-errors').onclick=()=>{ $('panel-log').hidden=true;$('panel-errors').hidden=false;$('tab-log').setAttribute('aria-selected','false');$('tab-errors').setAttribute('aria-selected','true');};
+(async()=>{try{const defaults=await api('/api/session',{});$('database-path').textContent=defaults.database;await refreshSystems();connected=true;controls();poll();}catch(e){notice(e.message);$('summary').textContent='Não foi possível conectar';}})();

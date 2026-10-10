@@ -122,6 +122,7 @@ class HistoryEntry:
     version: str = "sem versão"
     tests: list[dict[str, object]] = field(default_factory=list)
     execution_id: str = ""
+    system_version: str = ""
 
 
 @dataclass
@@ -134,6 +135,7 @@ class ReportData:
     generated_at: str
     errors: list[str] = field(default_factory=list)  # erros não fatais de parsing
     version: str = "sem versão"
+    system_version: str = ""
     title: str = "Relatório de Execução — Testes BDD"
     environment: dict[str, str] = field(default_factory=dict)
     flaky_tests: list[dict[str, object]] = field(default_factory=list)
