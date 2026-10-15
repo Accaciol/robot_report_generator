@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import zipfile
+from typing import Any, BinaryIO
 
 from core.sqlite_store import SQLiteStore
 from core.xml_parser import RobotOutputParser
@@ -39,16 +40,24 @@ def _configured_limit(name: str, default: int) -> int:
     return value
 
 
-def extract_archive(archive: Path, destination: Path,
-                    max_upload_bytes: int | None = None,
-                    max_unpacked_bytes: int | None = None) -> None:
-    upload_limit = max_upload_bytes or _configured_limit("ROBOT_REPORT_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES)
+def extract_archive(
+    archive: Path,
+    destination: Path,
+    max_upload_bytes: int | None = None,
+    max_unpacked_bytes: int | None = None,
+) -> None:
+    """Validate ZIP contents before extracting files into the staging folder."""
+    upload_limit = max_upload_bytes or _configured_limit(
+        "ROBOT_REPORT_MAX_UPLOAD_BYTES",
+        DEFAULT_MAX_UPLOAD_BYTES,
+    )
     unpacked_limit = max_unpacked_bytes or _configured_limit(
         "ROBOT_REPORT_MAX_UNPACKED_BYTES", DEFAULT_MAX_UNPACKED_BYTES)
     if not archive.is_file():
         raise ValueError("Arquivo ZIP não encontrado.")
     if archive.stat().st_size > upload_limit:
-        raise ValueError(f"ZIP excede o limite de {upload_limit // (1024 * 1024)} MiB.")
+            size_limit_mib = upload_limit // (1024 * 1024)
+            raise ValueError(f"ZIP excede o limite de {size_limit_mib} MiB.")
     try:
         with zipfile.ZipFile(archive) as bundle:
             members = bundle.infolist()
@@ -60,9 +69,13 @@ def extract_archive(archive: Path, destination: Path,
                 name = member.filename
                 path = PurePosixPath(name)
                 parts = name.rstrip("/").split("/")
-                if (not name or "\\" in name or path.is_absolute() or
-                        any(part in ("", ".", "..") for part in parts) or
-                        (path.parts and ":" in path.parts[0])):
+                if (
+                    not name
+                    or "\\" in name
+                    or path.is_absolute()
+                    or any(part in ("", ".", "..") for part in parts)
+                    or (path.parts and ":" in path.parts[0])
+                ):
                     raise ValueError(f"Caminho inseguro no ZIP: {name}")
                 normalized = str(path)
                 if normalized in seen:
@@ -70,14 +83,18 @@ def extract_archive(archive: Path, destination: Path,
                 seen.add(normalized)
                 mode = member.external_attr >> 16
                 is_directory = _is_directory(member)
-                if stat.S_IFMT(mode) and not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+                if stat.S_IFMT(mode) and not (
+                    stat.S_ISREG(mode) or stat.S_ISDIR(mode)
+                ):
                     raise ValueError(f"Tipo de arquivo não permitido no ZIP: {name}")
                 if not is_directory:
                     total_size += member.file_size
                     if total_size > unpacked_limit:
                         raise ValueError("Conteúdo descompactado excede o limite configurado.")
-            root_output = any(member.filename == "output.xml" and not _is_directory(member)
-                              for member in members)
+            root_output = any(
+                member.filename == "output.xml" and not _is_directory(member)
+                for member in members
+            )
             strip_prefix = None
             if not root_output:
                 candidates = {
@@ -89,13 +106,18 @@ def extract_archive(archive: Path, destination: Path,
                 }
                 candidates = {
                     prefix for prefix in candidates
-                    if all(member.filename.rstrip("/") == prefix
-                           or member.filename.startswith(prefix + "/") for member in members)
+                    if all(
+                        member.filename.rstrip("/") == prefix
+                        or member.filename.startswith(prefix + "/")
+                        for member in members
+                    )
                 }
                 if len(candidates) == 1:
                     strip_prefix = candidates.pop()
             if not root_output and strip_prefix is None:
-                raise ValueError("O ZIP deve conter output.xml na raiz ou dentro de uma única pasta.")
+                raise ValueError(
+                    "O ZIP deve conter output.xml na raiz ou dentro de uma única pasta."
+                )
             destination.mkdir(parents=True, exist_ok=True)
             for member in members:
                 member_name = member.filename
@@ -123,8 +145,15 @@ def _archive_directory(source: Path, archive: Path) -> None:
                 bundle.write(path, path.relative_to(source).as_posix())
 
 
+def _execution_fingerprint(output_xml: Path) -> str:
+    """Use the XML content as a stable deduplication key for a run."""
+    return hashlib.sha256(output_xml.read_bytes()).hexdigest()
+
+
 @dataclass
 class PreparedImport:
+    """A validated upload waiting for the user to confirm its metadata."""
+
     upload_id: str
     stage_dir: Path
     archive: Path
@@ -134,12 +163,15 @@ class PreparedImport:
 
 
 class ImportService:
+    """Own temporary uploads and pass confirmed imports to SQLite storage."""
+
     def __init__(self, database: Path | str | None = None) -> None:
         self.store = SQLiteStore(database)
         self.pending: dict[str, PreparedImport] = {}
         self.lock = threading.RLock()
 
     def _new_stage(self) -> Path:
+        # Staging shares the artifacts filesystem so the final move is atomic.
         return Path(tempfile.mkdtemp(prefix=".pending-", dir=self.store.artifacts_root))
 
     def _cleanup_expired(self) -> None:
@@ -149,7 +181,7 @@ class ImportService:
                 shutil.rmtree(item.stage_dir, ignore_errors=True)
                 self.pending.pop(upload_id, None)
 
-    def prepare_upload(self, stream, filename: str = "results.zip") -> dict:
+    def prepare_upload(self, stream: BinaryIO, filename: str = "results.zip") -> dict[str, Any]:
         del filename  # The server chooses storage paths; client filenames are never trusted.
         with self.lock:
             self._cleanup_expired()
@@ -162,29 +194,54 @@ class ImportService:
                     while chunk := stream.read(1024 * 1024):
                         total += len(chunk)
                         if total > limit:
-                            raise ValueError(f"ZIP excede o limite de {limit // (1024 * 1024)} MiB.")
+                            size_limit_mib = limit // (1024 * 1024)
+                            raise ValueError(
+                                f"ZIP excede o limite de {size_limit_mib} MiB."
+                            )
                         output.write(chunk)
                 results_dir = stage / "results"
                 extract_archive(archive, results_dir)
                 parser = RobotOutputParser(str(results_dir / "output.xml"))
                 suites, stats = parser.parse()
-                upload_id = hashlib.sha256(os.urandom(32) + str(time.time_ns()).encode()).hexdigest()
-                prepared = PreparedImport(upload_id, stage, archive, results_dir, parser, time.time())
+                upload_id = hashlib.sha256(
+                    os.urandom(32) + str(time.time_ns()).encode()
+                ).hexdigest()
+                prepared = PreparedImport(
+                    upload_id,
+                    stage,
+                    archive,
+                    results_dir,
+                    parser,
+                    time.time(),
+                )
                 self.pending[upload_id] = prepared
-                return {"upload_id": upload_id, "execution_date": parser.execution_start,
-                        **parser.system_metadata,
-                        "archive_members": len([path for path in results_dir.rglob("*") if path.is_file()]),
-                        "evidence_files": len([path for path in results_dir.rglob("*")
-                                               if path.is_file() and path.name != "output.xml"]),
-                        "output_xml": "output.xml",
-                        "total": stats.total, "passed": stats.passed, "failed": stats.failed,
-                        "skipped": stats.skipped, "errors": parser.errors}
+                files = [path for path in results_dir.rglob("*") if path.is_file()]
+                evidence_count = sum(path.name != "output.xml" for path in files)
+                return {
+                    "upload_id": upload_id,
+                    "execution_date": parser.execution_start,
+                    **parser.system_metadata,
+                    "archive_members": len(files),
+                    "evidence_files": evidence_count,
+                    "output_xml": "output.xml",
+                    "total": stats.total,
+                    "passed": stats.passed,
+                    "failed": stats.failed,
+                    "skipped": stats.skipped,
+                    "errors": parser.errors,
+                }
             except Exception:
                 shutil.rmtree(stage, ignore_errors=True)
                 raise
 
-    def commit_upload(self, upload_id: str, system_id: str, system_name: str,
-                      system_version: str, execution_date: str | None = None) -> dict:
+    def commit_upload(
+        self,
+        upload_id: str,
+        system_id: str,
+        system_name: str,
+        system_version: str,
+        execution_date: str | None = None,
+    ) -> dict[str, Any]:
         with self.lock:
             self._cleanup_expired()
             prepared = self.pending.get(upload_id)
@@ -192,19 +249,35 @@ class ImportService:
                 raise ValueError("Upload expirado ou inexistente. Envie o ZIP novamente.")
             timestamp = execution_date or prepared.parser.execution_start
             if not timestamp:
-                raise ValueError("Informe a data e hora da execução; o XML não contém essa informação.")
+                raise ValueError(
+                    "Informe a data e hora da execução; o XML não contém essa informação."
+                )
             suites, stats = prepared.parser.parse()
-            execution_id = hashlib.sha256((prepared.results_dir / "output.xml").read_bytes()).hexdigest()
+            execution_id = _execution_fingerprint(prepared.results_dir / "output.xml")
             try:
                 inserted, history = self.store.add_execution(
-                    system_id, system_name, system_version, timestamp, suites, stats,
-                    execution_id, staged_bundle=prepared.stage_dir)
-                return {"inserted": inserted, "execution_id": execution_id,
-                        "history": history, "system_id": system_id,
-                        "system_version": system_version, "execution_date": timestamp,
-                        "parser": prepared.parser, "suites": suites, "stats": stats,
-                        "results_dir": self.store.artifacts_root / system_id / execution_id / "results",
-                        "archive": prepared.archive}
+                    system_id,
+                    system_name,
+                    system_version,
+                    timestamp,
+                    suites,
+                    stats,
+                    execution_id,
+                    staged_bundle=prepared.stage_dir,
+                )
+                return {
+                    "inserted": inserted,
+                    "execution_id": execution_id,
+                    "history": history,
+                    "system_id": system_id,
+                    "system_version": system_version,
+                    "execution_date": timestamp,
+                    "parser": prepared.parser,
+                    "suites": suites,
+                    "stats": stats,
+                    "results_dir": self.store.artifacts_root / system_id / execution_id / "results",
+                    "archive": prepared.archive,
+                }
             finally:
                 self.pending.pop(upload_id, None)
                 if prepared.stage_dir.exists():
@@ -219,10 +292,16 @@ class ImportService:
                 raise ValueError("Upload expirado ou inexistente. Envie o ZIP novamente.")
             return prepared
 
-    def import_source(self, source: Path | str, system_id: str, system_name: str,
-                      system_version: str, execution_date: str | None = None,
-                      archive_source: Path | str | None = None,
-                      output_xml: Path | str | None = None) -> dict:
+    def import_source(
+        self,
+        source: Path | str,
+        system_id: str,
+        system_name: str,
+        system_version: str,
+        execution_date: str | None = None,
+        archive_source: Path | str | None = None,
+        output_xml: Path | str | None = None,
+    ) -> dict[str, Any]:
         source = Path(source).expanduser().resolve()
         stage = self._new_stage()
         archive = stage / "original.zip"
@@ -232,7 +311,11 @@ class ImportService:
                 shutil.copyfile(source, archive)
                 extract_archive(archive, results_dir)
             elif source.is_dir():
-                selected_xml = Path(output_xml).expanduser().resolve() if output_xml else source / "output.xml"
+                selected_xml = (
+                    Path(output_xml).expanduser().resolve()
+                    if output_xml
+                    else source / "output.xml"
+                )
                 if not selected_xml.is_file():
                     raise ValueError("A pasta de origem precisa conter output.xml.")
                 shutil.copytree(source, results_dir)
@@ -248,16 +331,32 @@ class ImportService:
             suites, stats = parser.parse()
             timestamp = execution_date or parser.execution_start
             if not timestamp:
-                raise ValueError("Informe a data e hora da execução; o XML não contém essa informação.")
-            execution_id = hashlib.sha256((results_dir / "output.xml").read_bytes()).hexdigest()
+                raise ValueError(
+                    "Informe a data e hora da execução; o XML não contém essa informação."
+                )
+            execution_id = _execution_fingerprint(results_dir / "output.xml")
             inserted, history = self.store.add_execution(
-                system_id, system_name, system_version, timestamp, suites, stats,
-                execution_id, staged_bundle=stage)
-            return {"inserted": inserted, "execution_id": execution_id, "history": history,
-                    "system_id": system_id, "system_version": system_version,
-                    "execution_date": timestamp, "parser": parser, "suites": suites,
-                    "stats": stats,
-                    "results_dir": self.store.artifacts_root / system_id / execution_id / "results"}
+                system_id,
+                system_name,
+                system_version,
+                timestamp,
+                suites,
+                stats,
+                execution_id,
+                staged_bundle=stage,
+            )
+            return {
+                "inserted": inserted,
+                "execution_id": execution_id,
+                "history": history,
+                "system_id": system_id,
+                "system_version": system_version,
+                "execution_date": timestamp,
+                "parser": parser,
+                "suites": suites,
+                "stats": stats,
+                "results_dir": self.store.artifacts_root / system_id / execution_id / "results",
+            }
         finally:
             if stage.exists():
                 shutil.rmtree(stage, ignore_errors=True)

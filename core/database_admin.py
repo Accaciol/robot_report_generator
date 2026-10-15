@@ -11,6 +11,24 @@ from pathlib import Path, PurePosixPath
 from core.sqlite_store import SQLiteStore
 
 
+def _validate_archive_member(name: str, mode: int, seen: set[str]) -> PurePosixPath:
+    """Reject paths that could escape staging or be extracted more than once."""
+    path = PurePosixPath(name)
+    invalid_path = (
+        not name
+        or "\\" in name
+        or path.is_absolute()
+        or any(part in ("", ".", "..") for part in path.parts)
+        or name in seen
+    )
+    invalid_type = stat.S_IFMT(mode) and not (
+        stat.S_ISREG(mode) or stat.S_ISDIR(mode)
+    )
+    if invalid_path or invalid_type:
+        raise ValueError("O pacote de backup contém um caminho ou arquivo inválido.")
+    return path
+
+
 def create_full_backup(database: Path | str, destination: Path | str) -> Path:
     """Write a ZIP containing a consistent SQLite snapshot and stored artifacts."""
     store = SQLiteStore(database)
@@ -50,21 +68,19 @@ def restore_full_backup(database: Path | str, archive_path: Path | str) -> int:
                     name = member.filename
                     path = PurePosixPath(name)
                     mode = member.external_attr >> 16
-                    if (not name or "\\" in name or path.is_absolute()
-                            or any(part in ("", ".", "..") for part in path.parts)
-                            or name in seen
-                            or (stat.S_IFMT(mode) and not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)))):
-                        raise ValueError("O pacote de backup contém um caminho ou arquivo inválido.")
+                    path = _validate_archive_member(name, mode, seen)
                     seen.add(name)
                     unpacked += member.file_size
                     if unpacked > 2 * 1024 * 1024 * 1024:
                         raise ValueError("O backup descompactado excede 2 GiB.")
                     if name == "report_history.sqlite3":
                         target = database_copy
-                    elif path.parts[0] == "executions":
+                    elif path.parts and path.parts[0] == "executions":
                         target = staging.joinpath(*path.parts)
                     else:
-                        raise ValueError("O pacote não corresponde ao formato de backup do Robot Reports.")
+                        raise ValueError(
+                            "O pacote não corresponde ao formato de backup do Robot Reports."
+                        )
                     if member.is_dir():
                         target.mkdir(parents=True, exist_ok=True)
                     else:

@@ -1,146 +1,13 @@
-"""Persistência do histórico de execuções em history.json.
-
-Responsabilidade única: ler, atualizar e gravar o histórico. Não conhece
-nada sobre XML nem sobre o template HTML.
-"""
+"""Helpers for execution history analysis and test snapshots."""
 from __future__ import annotations
 
-import json
-import logging
-import os
-import tempfile
-from dataclasses import asdict
 from datetime import datetime
-from pathlib import Path
 
 from models import ExecutionStats, HistoryEntry, SuiteResult
 
-logger = logging.getLogger(__name__)
-
 
 class HistoryManager:
-    """Lê, atualiza e persiste a série histórica de execuções."""
-
-    def __init__(self, history_path: str = "history.json", max_entries: int = 30) -> None:
-        self.history_path = Path(history_path)
-        self.max_entries = max_entries
-
-    def load(self) -> list[HistoryEntry]:
-        if not self.history_path.exists():
-            return []
-        try:
-            raw = json.loads(self.history_path.read_text(encoding="utf-8"))
-            return self._unique_entries([HistoryEntry(**entry) for entry in raw])
-        except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            logger.warning(
-                "history.json corrompido ou em formato inesperado (%s). "
-                "Iniciando um novo histórico a partir desta execução.",
-                exc,
-            )
-            return []
-
-    @staticmethod
-    def _signature(entry: HistoryEntry) -> str:
-        """Compare legacy entries without using their generated version labels."""
-        value = asdict(entry)
-        value.pop("version")
-        value.pop("execution_id")
-        return json.dumps(value, sort_keys=True, ensure_ascii=False)
-
-    @classmethod
-    def _unique_entries(cls, entries: list[HistoryEntry]) -> list[HistoryEntry]:
-        return [entries[index] for index in cls._unique_indices(entries)]
-
-    @classmethod
-    def _unique_indices(cls, entries: list[HistoryEntry]) -> list[int]:
-        unique = []
-        ids: set[str] = set()
-        legacy_signatures: set[str] = set()
-        for index, entry in enumerate(entries):
-            if entry.execution_id:
-                if entry.execution_id in ids:
-                    continue
-                ids.add(entry.execution_id)
-            else:
-                signature = cls._signature(entry)
-                if signature in legacy_signatures:
-                    continue
-                legacy_signatures.add(signature)
-            unique.append(index)
-        return unique
-
-    def append(
-        self,
-        stats: ExecutionStats,
-        suites: list[SuiteResult] | None = None,
-        execution_start: str | None = None,
-        execution_id: str = "",
-    ) -> list[HistoryEntry]:
-        """Persiste apenas execuções novas e retorna a série sem duplicatas."""
-        history = self.load()
-        tests = self._test_snapshots(suites or [])
-        timestamp = self._timestamp(execution_start)
-        entry = HistoryEntry(
-            timestamp=timestamp,
-            total=stats.total,
-            passed=stats.passed,
-            failed=stats.failed,
-            skipped=stats.skipped,
-            elapsed_s=round(stats.elapsed_s, 2),
-            pass_rate=stats.pass_rate,
-            version="",
-            tests=tests,
-            execution_id=execution_id,
-        )
-        existing = next((item for item in history if execution_id and item.execution_id == execution_id), None)
-        if existing is None:
-            signature = self._signature(entry)
-            existing = next((item for item in history
-                             if not item.execution_id and self._signature(item) == signature), None)
-        if existing is not None:
-            if execution_id and not existing.execution_id:
-                existing.execution_id = execution_id
-            self._save(history)
-            return history
-        entry.version = self._version_label(timestamp, history)
-        history.append(entry)
-        history = history[-self.max_entries :]
-        self._save(history)
-        return history
-
-    def remove(self, index: int, timestamp: str, version: str) -> None:
-        """Remove exatamente a entrada selecionada, preservando os demais dados."""
-        if type(index) is not int or index < 0:
-            raise ValueError("Selecione uma versão válida.")
-        try:
-            raw = json.loads(self.history_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise ValueError("Não foi possível ler o arquivo de histórico.") from exc
-        if not isinstance(raw, list):
-            raise ValueError("A versão selecionada não existe no histórico.")
-        try:
-            entries = [HistoryEntry(**entry) for entry in raw]
-            raw = [raw[i] for i in self._unique_indices(entries)]
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Não foi possível ler o arquivo de histórico.") from exc
-        if index >= len(raw):
-            raise ValueError("A versão selecionada não existe no histórico.")
-        if raw[index].get("timestamp") != timestamp or raw[index].get("version", "") != version:
-            raise ValueError("O histórico mudou. Recarregue a lista antes de remover.")
-        raw.pop(index)
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.history_path.parent,
-                                             prefix=f".{self.history_path.name}.", delete=False) as stream:
-                temporary = Path(stream.name)
-                json.dump(raw, stream, indent=2, ensure_ascii=False)
-                stream.write("\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, self.history_path)
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
+    """Analysis helpers retained for callers; SQLiteStore owns persistence."""
 
     @staticmethod
     def _timestamp(value: str | datetime | None) -> str:
@@ -262,13 +129,3 @@ class HistoryManager:
             "failed_delta": failed_delta,
             "failed_delta_str": f"+{failed_delta}" if failed_delta > 0 else f"{failed_delta}",
         }
-
-    def _save(self, history: list[HistoryEntry]) -> None:
-        try:
-            self.history_path.write_text(
-                json.dumps([asdict(e) for e in history], indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-        except OSError as exc:
-            # Falha ao gravar histórico não deve impedir a geração do relatório atual.
-            logger.error("Falha ao gravar %s: %s", self.history_path, exc)

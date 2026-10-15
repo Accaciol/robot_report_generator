@@ -2,6 +2,10 @@
 
 Gerador de relatórios HTML modernos, interativos e standalone (com CSS, JavaScript e evidências embutidos em Base64) a partir das saídas `output.xml` do **Robot Framework** (BDD + BrowserLibrary / SeleniumLibrary).
 
+Para conhecer a responsabilidade de cada arquivo e o fluxo de dados, consulte o
+[guia de arquivos do projeto](docs/DOCUMENTACAO_ARQUIVOS.md). O planejamento
+de escalabilidade está em [`docs/PLANEJAMENTO_ESCALABILIDADE.md`](docs/PLANEJAMENTO_ESCALABILIDADE.md).
+
 ## Estrutura do Projeto
 ```
 robot_report_generator/
@@ -105,7 +109,7 @@ público de consulta é `/public` no mesmo servidor e não exige token.
 5. Consulte **Visão geral** para comparar sistemas e períodos. A área de histórico permite remover uma execução.
 6. Use **Encerrar** ou `Ctrl+C` no terminal para desligar o servidor. Fechar a aba não interrompe a fila.
 
-O SQLite é compartilhado entre a interface local e a CLI. A base começa vazia; arquivos de histórico JSON antigos são preservados, sem migração automática. O caminho padrão é `robot-results/report_history.sqlite3` e pode ser alterado por `--database` ou `ROBOT_REPORT_DATABASE`. O limite padrão do ZIP é 500 MiB; o conteúdo expandido é limitado a 1 GiB e 10.000 arquivos. Os limites de upload e expansão podem ser configurados por `ROBOT_REPORT_MAX_UPLOAD_BYTES` e `ROBOT_REPORT_MAX_UNPACKED_BYTES`.
+O SQLite é o armazenamento persistente da interface local, da CLI e dos scripts de catálogo. O caminho padrão é `robot-results/report_history.sqlite3` e pode ser alterado por `--database` ou `ROBOT_REPORT_DATABASE`. Catálogos JSON antigos ou um `history.json` isolado podem ser importados com `scripts/migrate_json_catalog.py`; os arquivos de origem são preservados. O limite padrão do ZIP é 500 MiB; o conteúdo expandido é limitado a 1 GiB e 10.000 arquivos. Os limites de upload e expansão podem ser configurados por `ROBOT_REPORT_MAX_UPLOAD_BYTES` e `ROBOT_REPORT_MAX_UNPACKED_BYTES`.
 
 A interface usa HTML, CSS e JavaScript locais, sem precisar de internet. O ZIP é
 enviado ao servidor que executa a aplicação; não há envio a um serviço de terceiros.
@@ -165,7 +169,7 @@ python scripts/update_robot_results.py --list --system pagamentos
 python scripts/update_robot_results.py --system pagamentos --remove ID_COMPLETO_DA_EXECUCAO
 ```
 
-O banco padrão fica em `robot-results/report_history.sqlite3`; use `--database` ou `ROBOT_REPORT_DATABASE` para escolher outro arquivo. A base inicia vazia e não importa automaticamente os arquivos JSON antigos; eles permanecem intactos.
+O banco padrão fica em `robot-results/report_history.sqlite3`; use `--database` ou `ROBOT_REPORT_DATABASE` para escolher outro arquivo. A base inicia vazia. Catálogos JSON antigos são importados explicitamente com `python scripts/migrate_json_catalog.py`; a migração preserva os arquivos de origem. Para um histórico JSON isolado, informe `--history-json arquivo.json --system id --name "Nome"`.
 
 Cada importação registra métricas e snapshots no SQLite. O ZIP original e os resultados extraídos ficam arquivados somente para a execução mais recente por data e hora; execuções antigas permanecem consultáveis no histórico. O mesmo XML não é duplicado no mesmo sistema.
 

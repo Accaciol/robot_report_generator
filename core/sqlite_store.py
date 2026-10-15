@@ -146,7 +146,8 @@ class SQLiteStore:
             tables = {row[0] for row in source.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'")}
             version = source.execute("PRAGMA user_version").fetchone()[0]
-            if integrity != "ok" or not {"systems", "executions", "test_snapshots"}.issubset(tables):
+            required_tables = {"systems", "executions", "test_snapshots"}
+            if integrity != "ok" or not required_tables.issubset(tables):
                 raise ValueError("O arquivo não é um backup válido do Robot Reports.")
             if version not in (1, self.SCHEMA_VERSION):
                 raise ValueError(f"Versão de banco incompatível: {version}.")
@@ -161,12 +162,22 @@ class SQLiteStore:
     def orphaned_artifact_directories(self) -> list[Path]:
         """List artifact bundles not referenced by any registered execution."""
         with self._connection() as connection:
-            referenced = {str(self.database.parent / Path(row[0]).parent)
-                          for row in connection.execute(
-                              "SELECT archive_relpath FROM executions WHERE archive_relpath IS NOT NULL")}
-            referenced.update(str(self.database.parent / Path(row[0]).parent)
-                              for row in connection.execute(
-                                  "SELECT results_relpath FROM executions WHERE results_relpath IS NOT NULL"))
+            archive_rows = connection.execute(
+                "SELECT archive_relpath FROM executions "
+                "WHERE archive_relpath IS NOT NULL"
+            )
+            referenced = {
+                str(self.database.parent / Path(row[0]).parent)
+                for row in archive_rows
+            }
+            results_rows = connection.execute(
+                "SELECT results_relpath FROM executions "
+                "WHERE results_relpath IS NOT NULL"
+            )
+            referenced.update(
+                str(self.database.parent / Path(row[0]).parent)
+                for row in results_rows
+            )
         candidates = []
         for system_directory in self.artifacts_root.iterdir():
             if not system_directory.is_dir() or system_directory.name.startswith(".pending-"):
@@ -186,49 +197,143 @@ class SQLiteStore:
 
     @staticmethod
     def validate_system_id(system_id: str) -> None:
-        if not isinstance(system_id, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", system_id):
+        valid_id = isinstance(system_id, str) and re.fullmatch(
+            r"[a-z0-9]+(?:-[a-z0-9]+)*", system_id
+        )
+        if not valid_id:
             raise ValueError("Identificador do sistema: use letras minúsculas, números e hífens.")
 
-    def systems(self) -> list[tuple[dict, list[HistoryEntry], Path]]:
+    def systems(self) -> list[tuple[dict[str, object], list[HistoryEntry], Path]]:
         with self._connection() as connection:
-            ids = [row[0] for row in connection.execute("SELECT id FROM systems ORDER BY name COLLATE NOCASE, id")]
+            rows = connection.execute(
+                "SELECT id FROM systems ORDER BY name COLLATE NOCASE, id"
+            )
+            ids = [row[0] for row in rows]
         return [self.load(system_id) for system_id in ids]
 
-    def load(self, system_id: str) -> tuple[dict, list[HistoryEntry], Path]:
+    def load(
+        self, system_id: str
+    ) -> tuple[dict[str, object], list[HistoryEntry], Path]:
         self.validate_system_id(system_id)
         with self._connection() as connection:
             system = connection.execute("SELECT * FROM systems WHERE id=?", (system_id,)).fetchone()
             if system is None:
                 raise ValueError(f"Sistema inexistente: {system_id}")
             rows = connection.execute(
-                "SELECT * FROM executions WHERE system_id=? ORDER BY timestamp, execution_id", (system_id,)
+                "SELECT * FROM executions WHERE system_id=? "
+                "ORDER BY timestamp, execution_id",
+                (system_id,),
             ).fetchall()
             entries = [self._entry(connection, row) for row in rows]
-            current = next((row for row in reversed(rows) if row["results_relpath"]), None)
+            current = next(
+                (row for row in reversed(rows) if row["results_relpath"]),
+                None,
+            )
             current_id = current["execution_id"] if current else None
-            directory = self.artifacts_root / system_id / current_id if current_id else self.artifacts_root / system_id
-            return {"schema_version": self.SCHEMA_VERSION, "id": system_id,
-                    "name": system["name"], "current_execution_id": current_id}, entries, directory
+            directory = (
+                self.artifacts_root / system_id / current_id
+                if current_id
+                else self.artifacts_root / system_id
+            )
+            metadata = {
+                "schema_version": self.SCHEMA_VERSION,
+                "id": system_id,
+                "name": system["name"],
+                "current_execution_id": current_id,
+            }
+            return metadata, entries, directory
 
     @staticmethod
     def _entry(connection: sqlite3.Connection, row: sqlite3.Row) -> HistoryEntry:
-        tests = [dict(stable_id=test["stable_id"], suite_name=test["suite_name"],
-                      test_name=test["test_name"], status=test["status"],
-                      elapsed_s=test["elapsed_s"], artifacts=test["artifacts"])
-                 for test in connection.execute(
-                     "SELECT * FROM test_snapshots WHERE execution_pk=? ORDER BY stable_id", (row["id"],))]
-        return HistoryEntry(timestamp=row["timestamp"], total=row["total"], passed=row["passed"],
-                            failed=row["failed"], skipped=row["skipped"], elapsed_s=row["elapsed_s"],
-                            pass_rate=row["pass_rate"], version=f"{row['timestamp'][:10]} · {row['execution_id'][:8]}",
-                            tests=tests, execution_id=row["execution_id"],
-                            system_version=row["system_version"])
+        snapshot_rows = connection.execute(
+            "SELECT * FROM test_snapshots WHERE execution_pk=? ORDER BY stable_id",
+            (row["id"],),
+        )
+        tests = [
+            {
+                "stable_id": test["stable_id"],
+                "suite_name": test["suite_name"],
+                "test_name": test["test_name"],
+                "status": test["status"],
+                "elapsed_s": test["elapsed_s"],
+                "artifacts": test["artifacts"],
+            }
+            for test in snapshot_rows
+        ]
+        return HistoryEntry(
+            timestamp=row["timestamp"],
+            total=row["total"],
+            passed=row["passed"],
+            failed=row["failed"],
+            skipped=row["skipped"],
+            elapsed_s=row["elapsed_s"],
+            pass_rate=row["pass_rate"],
+            version=f"{row['timestamp'][:10]} · {row['execution_id'][:8]}",
+            tests=tests,
+            execution_id=row["execution_id"],
+            system_version=row["system_version"],
+        )
 
     def history(self, system_id: str) -> list[HistoryEntry]:
         return self.load(system_id)[1]
 
-    def add_execution(self, system_id: str, system_name: str, system_version: str,
-                      timestamp: str | datetime | None, suites, stats: ExecutionStats,
-                      execution_id: str, staged_bundle: Path | None = None) -> tuple[bool, list[HistoryEntry]]:
+    def import_history_entries(
+        self, system_id: str, system_name: str, entries: list[HistoryEntry]
+    ) -> int:
+        """Import summary-only legacy entries without creating JSON storage."""
+        self.validate_system_id(system_id)
+        if not system_name.strip():
+            raise ValueError("Informe o nome do sistema.")
+        inserted = 0
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "INSERT INTO systems(id,name,created_at) VALUES(?,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET name=excluded.name",
+                (system_id, system_name.strip(), now),
+            )
+            for index, entry in enumerate(entries):
+                timestamp = _timestamp(entry.timestamp)
+                payload = repr((timestamp, entry.total, entry.passed, entry.failed,
+                                entry.skipped, entry.elapsed_s, entry.tests, index))
+                execution_id = entry.execution_id or "legacy-" + hashlib.sha256(
+                    payload.encode("utf-8")
+                ).hexdigest()
+                cursor = connection.execute(
+                    "INSERT OR IGNORE INTO executions(system_id,execution_id,timestamp,"
+                    "system_version,total,passed,failed,skipped,elapsed_s,pass_rate,"
+                    "archive_relpath,results_relpath,imported_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,NULL,NULL,?)",
+                    (system_id, execution_id, timestamp, entry.system_version or "não informada",
+                     entry.total, entry.passed, entry.failed, entry.skipped, entry.elapsed_s,
+                     entry.pass_rate, now),
+                )
+                if cursor.rowcount == 0:
+                    continue
+                inserted += 1
+                connection.executemany(
+                    "INSERT OR IGNORE INTO test_snapshots(execution_pk,stable_id,suite_name,"
+                    "test_name,status,elapsed_s,artifacts) VALUES(?,?,?,?,?,?,?)",
+                    [(cursor.lastrowid, str(test.get("stable_id", "")),
+                      str(test.get("suite_name", "")), str(test.get("test_name", "")),
+                      str(test.get("status", "")), float(test.get("elapsed_s", 0)),
+                      int(test.get("artifacts", 0))) for test in entry.tests],
+                )
+            connection.commit()
+        return inserted
+
+    def add_execution(
+        self,
+        system_id: str,
+        system_name: str,
+        system_version: str,
+        timestamp: str | datetime | None,
+        suites: list,
+        stats: ExecutionStats,
+        execution_id: str,
+        staged_bundle: Path | None = None,
+    ) -> tuple[bool, list[HistoryEntry]]:
         self.validate_system_id(system_id)
         if not system_name.strip() or not system_version.strip():
             raise ValueError("Informe o nome do sistema e a versão do produto.")
@@ -240,9 +345,11 @@ class SQLiteStore:
         try:
             with self._connection() as connection:
                 connection.execute("BEGIN IMMEDIATE")
-                connection.execute("INSERT INTO systems(id,name,created_at) VALUES(?,?,?) "
-                                   "ON CONFLICT(id) DO UPDATE SET name=excluded.name",
-                                   (system_id, system_name.strip(), now))
+                connection.execute(
+                    "INSERT INTO systems(id,name,created_at) VALUES(?,?,?) "
+                    "ON CONFLICT(id) DO UPDATE SET name=excluded.name",
+                    (system_id, system_name.strip(), now),
+                )
                 duplicate = connection.execute(
                     "SELECT id FROM executions WHERE system_id=? AND execution_id=?",
                     (system_id, execution_id)).fetchone()
@@ -250,10 +357,16 @@ class SQLiteStore:
                     connection.commit()
                     return False, self.history(system_id)
                 previous = connection.execute(
-                    "SELECT id,execution_id,timestamp,results_relpath FROM executions "
-                    "WHERE system_id=? AND results_relpath IS NOT NULL ORDER BY timestamp DESC, execution_id DESC LIMIT 1",
-                    (system_id,)).fetchone()
-                current_key = (previous["timestamp"], previous["execution_id"]) if previous else None
+                    "SELECT id,execution_id,timestamp,results_relpath "
+                    "FROM executions WHERE system_id=? AND results_relpath IS NOT NULL "
+                    "ORDER BY timestamp DESC, execution_id DESC LIMIT 1",
+                    (system_id,),
+                ).fetchone()
+                current_key = (
+                    (previous["timestamp"], previous["execution_id"])
+                    if previous
+                    else None
+                )
                 incoming_key = (normalized_timestamp, execution_id)
                 is_current = current_key is None or incoming_key > current_key
                 archive_relpath = results_relpath = None
@@ -268,31 +381,66 @@ class SQLiteStore:
                         shutil.rmtree(final_directory)
                     os.replace(staged_bundle, final_directory)
                     moved = True
-                    archive_relpath = str(final_directory.relative_to(self.database.parent) / "original.zip")
-                    results_relpath = str(final_directory.relative_to(self.database.parent) / "results")
+                    relative_directory = final_directory.relative_to(self.database.parent)
+                    archive_relpath = str(relative_directory / "original.zip")
+                    results_relpath = str(relative_directory / "results")
                 cursor = connection.execute(
-                    "INSERT INTO executions(system_id,execution_id,timestamp,system_version,total,passed,failed,skipped,"
-                    "elapsed_s,pass_rate,archive_relpath,results_relpath,imported_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (system_id, execution_id, normalized_timestamp, system_version.strip(), stats.total,
-                     stats.passed, stats.failed, stats.skipped, round(stats.elapsed_s, 2), stats.pass_rate,
-                     archive_relpath, results_relpath, now))
+                    "INSERT INTO executions("
+                    "system_id,execution_id,timestamp,system_version,total,passed,failed,skipped,"
+                    "elapsed_s,pass_rate,archive_relpath,results_relpath,imported_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        system_id,
+                        execution_id,
+                        normalized_timestamp,
+                        system_version.strip(),
+                        stats.total,
+                        stats.passed,
+                        stats.failed,
+                        stats.skipped,
+                        round(stats.elapsed_s, 2),
+                        stats.pass_rate,
+                        archive_relpath,
+                        results_relpath,
+                        now,
+                    ),
+                )
                 snapshots = HistoryManager._test_snapshots(suites)
                 connection.executemany(
-                    "INSERT INTO test_snapshots(execution_pk,stable_id,suite_name,test_name,status,elapsed_s,artifacts) "
+                    "INSERT INTO test_snapshots("
+                    "execution_pk,stable_id,suite_name,test_name,status,elapsed_s,artifacts) "
                     "VALUES(?,?,?,?,?,?,?)",
-                    [(cursor.lastrowid, str(test["stable_id"]), str(test["suite_name"]),
-                      str(test["test_name"]), str(test["status"]), float(test["elapsed_s"]),
-                      int(test["artifacts"])) for test in snapshots])
+                    [
+                        (
+                            cursor.lastrowid,
+                            str(test["stable_id"]),
+                            str(test["suite_name"]),
+                            str(test["test_name"]),
+                            str(test["status"]),
+                            float(test["elapsed_s"]),
+                            int(test["artifacts"]),
+                        )
+                        for test in snapshots
+                    ],
+                )
                 if is_current and previous:
                     old_relpaths = {previous["results_relpath"]}
                     old = connection.execute(
-                        "SELECT archive_relpath FROM executions WHERE id=?", (previous["id"],)).fetchone()
+                        "SELECT archive_relpath FROM executions WHERE id=?",
+                        (previous["id"],),
+                    ).fetchone()
                     if old and old["archive_relpath"]:
                         old_relpaths.add(old["archive_relpath"])
-                    old_directories = [self.database.parent / Path(rel).parent
-                                       for rel in old_relpaths if rel]
-                    connection.execute("UPDATE executions SET archive_relpath=NULL,results_relpath=NULL "
-                                       "WHERE id=?", (previous["id"],))
+                    old_directories = [
+                        self.database.parent / Path(rel).parent
+                        for rel in old_relpaths
+                        if rel
+                    ]
+                    connection.execute(
+                        "UPDATE executions SET archive_relpath=NULL,results_relpath=NULL "
+                        "WHERE id=?",
+                        (previous["id"],),
+                    )
                 connection.commit()
                 moved = False
             for directory in set(old_directories):
@@ -308,37 +456,72 @@ class SQLiteStore:
         self.validate_system_id(system_id)
         with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT archive_relpath,results_relpath FROM executions "
-                                     "WHERE system_id=? AND execution_id=?", (system_id, execution_id)).fetchone()
+            row = connection.execute(
+                "SELECT archive_relpath,results_relpath FROM executions "
+                "WHERE system_id=? AND execution_id=?",
+                (system_id, execution_id),
+            ).fetchone()
             if row is None:
                 raise ValueError(f"Execução inexistente em {system_id}: {execution_id}")
             paths = [row[key] for key in ("archive_relpath", "results_relpath") if row[key]]
-            connection.execute("DELETE FROM executions WHERE system_id=? AND execution_id=?",
-                               (system_id, execution_id))
+            connection.execute(
+                "DELETE FROM executions WHERE system_id=? AND execution_id=?",
+                (system_id, execution_id),
+            )
             connection.commit()
         if paths:
             shutil.rmtree(self.artifacts_root / system_id / execution_id, ignore_errors=True)
 
-    def report_data(self, metadata: dict, history: list[HistoryEntry], directory: Path,
-                    title: str, issue_url: str = "") -> ReportData:
+    def report_data(
+        self,
+        metadata: dict[str, object],
+        history: list[HistoryEntry],
+        directory: Path,
+        title: str,
+        issue_url: str = "",
+    ) -> ReportData:
         latest = history[-1] if history else None
-        stats = ExecutionStats(**{key: getattr(latest, key) for key in
-                                 ("total", "passed", "failed", "skipped", "elapsed_s")}) if latest else ExecutionStats()
+        stats = (
+            ExecutionStats(
+                **{
+                    key: getattr(latest, key)
+                    for key in (
+                        "total",
+                        "passed",
+                        "failed",
+                        "skipped",
+                        "elapsed_s",
+                    )
+                }
+            )
+            if latest
+            else ExecutionStats()
+        )
         suites, errors, environment = [], [], {}
         current_id = metadata["current_execution_id"]
         if current_id:
             xml = directory / "results" / "output.xml"
-            if not xml.is_file() or hashlib.sha256(xml.read_bytes()).hexdigest() != current_id:
-                raise ValueError(f"Outputs de {metadata['id']} ausentes ou alterados; reimporte a execução.")
+            xml_hash = hashlib.sha256(xml.read_bytes()).hexdigest() if xml.is_file() else ""
+            if xml_hash != current_id:
+                raise ValueError(
+                    f"Outputs de {metadata['id']} ausentes ou alterados; "
+                    "reimporte a execução."
+                )
             parser = RobotOutputParser(str(xml))
             suites, _ = parser.parse()
             errors, environment = parser.errors, parser.environment
-        return ReportData(stats=stats, suites=suites, history=history,
-                          title=f"{title} — {metadata['name']}",
-                          generated_at=datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-                          version=latest.version if latest else "sem execuções",
-                          system_version=latest.system_version if latest else "",
-                          errors=errors, environment=environment,
-                          flaky_tests=HistoryManager.detect_flaky_tests(history),
-                          delta_stats=HistoryManager.compute_delta_stats(stats, history),
-                          issue_url_pattern=issue_url, detailed_execution_id=current_id or "")
+        return ReportData(
+            stats=stats,
+            suites=suites,
+            history=history,
+            title=f"{title} — {metadata['name']}",
+            generated_at=datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            version=latest.version if latest else "sem execuções",
+            system_version=latest.system_version if latest else "",
+            errors=errors,
+            environment=environment,
+            flaky_tests=HistoryManager.detect_flaky_tests(history),
+            delta_stats=HistoryManager.compute_delta_stats(stats, history),
+            issue_url_pattern=issue_url,
+            detailed_execution_id=current_id or "",
+        )

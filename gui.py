@@ -1,6 +1,7 @@
 """Interface web local: python gui.py ou robot-report-gui."""
 from __future__ import annotations
 
+import os
 import threading
 import webbrowser
 
@@ -10,14 +11,18 @@ from core.web_app import create_app
 
 
 def main() -> None:
-    import os
     app = create_app()
     host = os.environ.get("ROBOT_REPORT_HOST", "127.0.0.1")
     port = int(os.environ.get("ROBOT_REPORT_PORT", "0"))
     public_origin = os.environ.get("ROBOT_REPORT_ORIGIN")
     server = make_server(host, port, app, threaded=True)
     server_port = server.server_port
-    origin = public_origin or (f"http://127.0.0.1:{server_port}" if host in ("127.0.0.1", "0.0.0.0") else f"http://{host}:{server_port}")
+    if public_origin:
+        origin = public_origin
+    elif host in ("127.0.0.1", "0.0.0.0"):
+        origin = f"http://127.0.0.1:{server_port}"
+    else:
+        origin = f"http://{host}:{server_port}"
     app.config["LOCAL_ORIGIN"] = origin
     app.config["STOP_SERVER"] = server.shutdown
     url = f"{origin}/#token={app.config['SESSION_TOKEN']}"

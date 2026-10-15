@@ -1,27 +1,34 @@
-# Resultados por sistema
+# Banco de resultados
 
-O catálogo versionado fica em `systems/<identificador>/`, com `system.json`,
-`history.json` e os outputs mais recentes em `current/`. O histórico de resumos
-não tem limite automático; os outputs antigos são substituídos por sistema.
+O histórico da aplicação fica no banco SQLite `report_history.sqlite3`. O
+caminho padrão é este diretório; configure `ROBOT_REPORT_DATABASE` ou passe
+`--database` para usar outro local. Arquivos de execuções atuais ficam na pasta
+`executions/`, ao lado do banco.
 
-Na raiz do projeto:
+Use `scripts/update_robot_results.py` para importar, listar ou remover execuções:
 
 ```bash
-python scripts/update_robot_results.py /caminho/resultados --system portal --name "Portal"
-python scripts/update_robot_results.py --list --system portal
-python scripts/update_robot_results.py --system portal --remove ID_COMPLETO_DA_EXECUCAO
-python main.py --catalog-dir robot-results/systems --report relatorio.html
+python scripts/update_robot_results.py /caminho/resultados \
+  --system portal --name "Portal" --version 1.2
+python scripts/update_robot_results.py --list
+python scripts/update_robot_results.py --system portal --remove ID_COMPLETO
 ```
 
-A origem precisa conter `output.xml` e suas evidências por caminhos relativos.
-Use a listagem para obter o ID completo antes de remover uma execução. Remover a
-execução atual apaga também seus outputs; a anterior fica disponível como resumo.
-HTMLs já baixados não são alterados. Nenhum comando faz commit ou push automaticamente.
+Para converter um catálogo antigo que contenha `systems/<id>/system.json`,
+`history.json` e opcionalmente `current/output.xml`, execute:
 
-A pasta `robot-results/current/` é legada e não alimenta o catálogo. Para migrar,
-importe-a com `--system`. Para incluir também um histórico antigo, use
-`--migrate-history /caminho/history.json` na importação para um sistema novo.
+```bash
+python scripts/migrate_json_catalog.py /caminho/catalogo-antigo
+```
 
-Consulte o [README principal](../README.md#sistemas-e-histórico)
-para migração e retenção. Excluir outputs atuais não remove
-suas versões antigas do histórico do Git.
+Para importar apenas um arquivo JSON de histórico:
+
+```bash
+python scripts/migrate_json_catalog.py --history-json /caminho/history.json \
+  --system portal --name "Portal"
+```
+
+A migração importa resumos e a execução atual para SQLite e preserva os arquivos
+JSON e evidências originais. Faça um backup do catálogo antigo antes de migrar.
+Relatórios HTML exportados são cópias estáticas e não são atualizados quando o
+banco muda; gere-os novamente quando necessário.
