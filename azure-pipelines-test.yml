@@ -1,0 +1,15 @@
+trigger: none
+pr: none
+
+pool:
+  name: Default
+
+steps:
+  - template: azure-pipelines/robot-report-import.yml
+    parameters:
+      resultsDirectory: '$(Build.SourcesDirectory)/results'
+      serverUrl: 'http://127.0.0.1:5000'
+      systemId: 'robot-report-test'
+      systemName: 'Robot Report Test'
+      systemVersion: '$(Build.BuildNumber)'
+      failOnImportError: true

@@ -3,6 +3,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from core.web_app import create_app
 
@@ -21,6 +22,7 @@ class TestWebImports(unittest.TestCase):
         self.jobs = self.app.extensions["jobs"]
         self.imports = self.app.extensions["imports"]
         self.headers = {"X-Session-Token": self.app.config["SESSION_TOKEN"], "Origin": ORIGIN}
+        self.app.config["INGEST_TOKEN"] = "automation-secret"
 
     def tearDown(self):
         self.jobs.close()
@@ -60,3 +62,81 @@ class TestWebImports(unittest.TestCase):
                                     content_type="multipart/form-data")
         self.assertEqual(response.status_code, 400)
         self.assertIn("ZIP", response.json["error"])
+
+    def automation_post(self, data):
+        return self.client.post("/api/automation/imports", base_url="http://pipeline.example",
+                                headers={"Authorization": "Bearer automation-secret"},
+                                data=data, content_type="multipart/form-data")
+
+    def test_automation_auth_validation_import_and_status(self):
+        unauthenticated = self.client.post("/api/automation/imports", base_url="http://pipeline.example")
+        self.assertEqual(unauthenticated.status_code, 403)
+        bad = self.automation_post({"file": (io.BytesIO(b"broken"), "results.zip"),
+                                    "system_id": "portal", "system_name": "Portal",
+                                    "system_version": "1"})
+        self.assertEqual(bad.status_code, 400)
+        invalid_metadata = self.automation_post({"file": (io.BytesIO(b"zip"), "results.zip"),
+                                                 "system_id": "../bad", "system_name": "Portal",
+                                                 "system_version": "1"})
+        self.assertEqual(invalid_metadata.status_code, 400)
+
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as bundle:
+            bundle.writestr("output.xml", (ROOT / "example/output.xml").read_bytes())
+        stream.seek(0)
+        response = self.automation_post({"file": (stream, "results.zip"), "system_id": "portal",
+                                         "system_name": "Portal", "system_version": "${Build.BuildNumber}"})
+        self.assertEqual(response.status_code, 202, response.json)
+        run_id = response.json["import_id"]
+        self.jobs.worker.join(timeout=20)
+        status = self.client.get(f"/api/automation/imports/{run_id}", base_url="http://pipeline.example",
+                                 headers={"Authorization": "Bearer automation-secret"})
+        self.assertEqual(status.json["items"][0]["status"], "completed", status.json)
+        systems = self.client.get("/public/api/systems", base_url="http://pipeline.example")
+        self.assertEqual(systems.json["systems"][0]["id"], "portal")
+        self.assertEqual(len(self.app.extensions["imports"].store.systems()[0][1]), 1)
+        # Re-importing byte-identical XML is recorded as a successful no-op.
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as bundle:
+            bundle.writestr("output.xml", (ROOT / "example/output.xml").read_bytes())
+        stream.seek(0)
+        response = self.automation_post({"file": (stream, "results.zip"), "system_id": "portal",
+                                         "system_name": "Portal", "system_version": "2"})
+        self.assertEqual(response.status_code, 202)
+        self.jobs.worker.join(timeout=20)
+        self.assertEqual(len(self.app.extensions["imports"].store.systems()[0][1]), 1)
+
+    def test_automation_keeps_administrative_routes_on_session_token(self):
+        response = self.client.get("/api/state", base_url="http://pipeline.example",
+                                   headers={"Authorization": "Bearer automation-secret"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_automation_rejects_wrong_token_and_oversized_zip(self):
+        response = self.client.get("/api/automation/imports/not-real", base_url="http://pipeline.example",
+                                   headers={"Authorization": "Bearer wrong-token"})
+        self.assertEqual(response.status_code, 403)
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as bundle:
+            bundle.writestr("output.xml", (ROOT / "example/output.xml").read_bytes())
+        stream.seek(0)
+        with patch.dict("os.environ", {"ROBOT_REPORT_MAX_UPLOAD_BYTES": "1"}):
+            response = self.automation_post({"file": (stream, "results.zip"), "system_id": "portal",
+                                             "system_name": "Portal", "system_version": "1"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("limite", response.json["error"])
+
+    def test_automation_status_propagates_processing_failure(self):
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as bundle:
+            bundle.writestr("output.xml", (ROOT / "example/output.xml").read_bytes())
+        stream.seek(0)
+        with patch("core.web_jobs.subprocess.Popen", side_effect=OSError("worker indisponível")):
+            response = self.automation_post({"file": (stream, "results.zip"), "system_id": "portal",
+                                             "system_name": "Portal", "system_version": "1"})
+            self.assertEqual(response.status_code, 202)
+            run_id = response.json["import_id"]
+            self.jobs.worker.join(timeout=20)
+        status = self.client.get(f"/api/automation/imports/{run_id}", base_url="http://pipeline.example",
+                                 headers={"Authorization": "Bearer automation-secret"})
+        self.assertEqual(status.json["items"][0]["status"], "failed")
+        self.assertIn("worker indisponível", status.json["items"][0]["error"])

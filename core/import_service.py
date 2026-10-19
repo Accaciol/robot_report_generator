@@ -292,6 +292,13 @@ class ImportService:
                 raise ValueError("Upload expirado ou inexistente. Envie o ZIP novamente.")
             return prepared
 
+    def discard_upload(self, upload_id: str) -> None:
+        """Remove a staged upload that cannot proceed to import."""
+        with self.lock:
+            prepared = self.pending.pop(upload_id, None)
+            if prepared is not None:
+                shutil.rmtree(prepared.stage_dir, ignore_errors=True)
+
     def import_source(
         self,
         source: Path | str,

@@ -29,6 +29,7 @@ class JobManager:
         self.logs: deque[str] = deque(maxlen=3000)
         self.errors: deque[dict[str, str]] = deque(maxlen=50)
         self.active = False
+        self.completed_runs: dict[str, dict[str, Any]] = {}
 
     def snapshot(self) -> dict[str, Any]:
         """Return a detached view so API callers cannot mutate live job state."""
@@ -41,6 +42,19 @@ class JobManager:
                 "logs": list(self.logs),
                 "errors": list(self.errors),
             }
+
+    def status(self, run_id: str) -> dict[str, Any] | None:
+        """Return status for a current or recently finished run."""
+        with self.lock:
+            if run_id == self.run_id:
+                return {
+                    "run_id": self.run_id,
+                    "active": self.active,
+                    "items": copy.deepcopy(self.items),
+                    "errors": [e for e in self.errors if e.get("run_id") == run_id],
+                }
+            value = self.completed_runs.get(run_id)
+            return copy.deepcopy(value) if value is not None else None
 
     @staticmethod
     def _make_item(source: Path | dict[str, Any]) -> dict[str, Any]:
@@ -214,6 +228,14 @@ class JobManager:
             with self.lock:
                 self.process = None
                 self.active = False
+                self.completed_runs[run_id] = {
+                    "run_id": run_id,
+                    "active": False,
+                    "items": copy.deepcopy(self.items),
+                    "errors": [e for e in self.errors if e.get("run_id") == run_id],
+                }
+                while len(self.completed_runs) > 100:
+                    self.completed_runs.pop(next(iter(self.completed_runs)))
 
     def cancel(self, run_id: str | None) -> None:
         """Stop the active child process and mark queued work as cancelled."""

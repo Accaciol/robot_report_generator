@@ -1,0 +1,77 @@
+parameters:
+  - name: resultsDirectory
+    type: string
+    default: '$(System.DefaultWorkingDirectory)/results'
+  - name: systemId
+    type: string
+  - name: systemName
+    type: string
+  - name: systemVersion
+    type: string
+    default: '$(Build.BuildNumber)'
+  - name: serverUrl
+    type: string
+  - name: failOnImportError
+    type: boolean
+    default: false
+  - name: pollIntervalSeconds
+    type: number
+    default: 5
+  - name: timeoutMinutes
+    type: number
+    default: 30
+
+steps:
+  - task: ArchiveFiles@2
+    displayName: 'Compactar resultados Robot Framework'
+    continueOnError: ${{ not(parameters.failOnImportError) }}
+    inputs:
+      rootFolderOrFile: '${{ parameters.resultsDirectory }}'
+      includeRootFolder: false
+      archiveType: zip
+      archiveFile: '$(Agent.TempDirectory)/robot-results.zip'
+      replaceExistingArchive: true
+
+  - bash: |
+      set -euo pipefail
+      base_url="${SERVER_URL%/}"
+      response_file="$(Agent.TempDirectory)/robot-import-response.json"
+      http_code=$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+        --header "Authorization: Bearer $ROBOT_REPORT_INGEST_TOKEN" \
+        --form "file=@$(Agent.TempDirectory)/robot-results.zip;type=application/zip" \
+        --form "system_id=$SYSTEM_ID" --form "system_name=$SYSTEM_NAME" \
+        --form "system_version=$SYSTEM_VERSION" "$base_url/api/automation/imports") || {
+          echo 'Falha de rede ao enviar resultados.'; exit 1;
+        }
+      if [ "$http_code" != 202 ]; then
+        echo "Servidor recusou importação (HTTP $http_code): $(cat "$response_file")"; exit 1;
+      fi
+      import_id=$(jq -r '.import_id // empty' "$response_file")
+      if [ -z "$import_id" ]; then echo 'Resposta sem import_id.'; exit 1; fi
+      deadline=$((SECONDS + TIMEOUT_MINUTES * 60))
+      while [ "$SECONDS" -lt "$deadline" ]; do
+        status_file="$(Agent.TempDirectory)/robot-import-status.json"
+        status_code=$(curl --silent --show-error --output "$status_file" --write-out '%{http_code}' \
+          --header "Authorization: Bearer $ROBOT_REPORT_INGEST_TOKEN" \
+          "$base_url/api/automation/imports/$import_id") || { echo 'Falha ao consultar importação.'; exit 1; }
+        if [ "$status_code" != 200 ]; then echo "Consulta de status falhou (HTTP $status_code): $(cat "$status_file")"; exit 1; fi
+        active=$(jq -r '.active' "$status_file")
+        item_status=$(jq -r '.items[0].status // "unknown"' "$status_file")
+        if [ "$active" = false ]; then
+          if [ "$item_status" = completed ]; then echo "Importação $import_id concluída."; exit 0; fi
+          echo "Importação $import_id terminou como $item_status: $(jq -r '.items[0].error // "sem detalhes"' "$status_file")"
+          exit 1
+        fi
+        sleep "$POLL_INTERVAL"
+      done
+      echo "Timeout aguardando importação $import_id."; exit 1
+    displayName: 'Enviar resultados ao gerador remoto'
+    env:
+      ROBOT_REPORT_INGEST_TOKEN: $(ROBOT_REPORT_INGEST_TOKEN)
+      SERVER_URL: '${{ parameters.serverUrl }}'
+      SYSTEM_ID: '${{ parameters.systemId }}'
+      SYSTEM_NAME: '${{ parameters.systemName }}'
+      SYSTEM_VERSION: '${{ parameters.systemVersion }}'
+      POLL_INTERVAL: '${{ parameters.pollIntervalSeconds }}'
+      TIMEOUT_MINUTES: '${{ parameters.timeoutMinutes }}'
+    continueOnError: ${{ not(parameters.failOnImportError) }}
