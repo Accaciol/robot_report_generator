@@ -33,3 +33,14 @@ relatorio*.html
 build/
 dist/
 *.egg-info/
+local-data/input/output.xml
+.gitignore
+local-data/legacy/report_history.sqlite3
+.gitignore
+*.png
+*.zip
+*.html
+*.json
+*.xml
+*.txt
+*.sqlite3
