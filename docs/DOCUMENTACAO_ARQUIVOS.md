@@ -16,6 +16,9 @@ código-fonte e ficam fora do Git.
 | `docker-compose.yml` | Define o serviço web, a porta local e o volume persistente de dados. |
 | `README.md` | Apresenta o projeto, instalação, uso da CLI, interface e Docker. |
 | `docs/PLANEJAMENTO_ESCALABILIDADE.md` | Registra etapas e critérios para evolução da arquitetura. |
+| `docs/TESTE_AZURE_DEVOPS_LOCAL.md` | Passo a passo para configurar o agente Linux e testar a ingestão de resultados via Azure DevOps. |
+| `docs/GUIA_RECRIAR_TESTE_AZURE_DEVOPS.md` | Roteiro completo para recriar a organização, o projeto, o agente Linux e a pipeline de teste Azure DevOps. |
+| `docs/SEGURANCA_ARQUITETURA.md` | Descreve os fluxos de dados, autenticação, limites de ingestão, armazenamento e pontos de atenção para revisão de segurança. |
 | `docs/DOCUMENTACAO_ARQUIVOS.md` | Este inventário e mapa de responsabilidades dos arquivos. |
 | `main.py` | Entrada da CLI: importa resultados, gera HTML/PDF/JSON e chama os serviços do catálogo. |
 | `gui.py` | Inicializa o servidor Flask, define a origem local e anuncia o endereço da interface. |
@@ -37,7 +40,7 @@ código-fonte e ficam fora do Git.
 | `core/database_admin.py` | Cria e restaura pacotes completos de backup e localiza arquivos de artefatos sem referência no banco. |
 | `core/import_service.py` | Valida e extrai ZIPs, cria uploads temporários e encaminha execuções confirmadas ao armazenamento. |
 | `core/report_renderer.py` | Monta o HTML detalhado com Jinja2 e inclui as evidências quando necessário. |
-| `core/pdf_summary.py` | Converte métricas e resultados de uma execução em um resumo PDF. |
+| `core/pdf_summary.py` | Gera resumos executivos e relatórios customizados em PDF (mono e multi-sistemas com seções selecionáveis) via ReportLab. |
 | `core/azure_publish.py` | Publica opcionalmente o catálogo estático usando Azure Static Web Apps CLI. |
 | `core/web_app.py` | Cria a aplicação Flask, define rotas HTTP, controla acesso local e conecta as interfaces aos serviços. |
 | `core/web_services.py` | Valida caminhos e solicitações e oferece operações independentes de Flask para catálogo e histórico. |

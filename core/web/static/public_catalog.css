@@ -177,6 +177,191 @@ iframe {
 
 [hidden] { display: none !important; }
 
+.btn-pdf-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 15px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 13.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all .16s ease;
+}
+.btn-pdf-export:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgb(0 0 0 / 52%);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.modal-dialog {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 580px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 22%);
+  animation: modalIn .18s ease-out;
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(.96) translateY(-8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+}
+.btn-close:hover { color: var(--text); }
+.modal-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.modal-field input[type="text"] {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--page-bg);
+  color: var(--text);
+  font-size: 14px;
+}
+.field-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.field-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--muted);
+}
+.field-actions {
+  display: flex;
+  gap: 10px;
+}
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.btn-link:hover { text-decoration: underline; }
+.checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 165px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--page-bg) 60%, transparent);
+}
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.checkbox-item input {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+.modal-status {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 7px;
+  font-size: 12.5px;
+}
+.modal-status.error {
+  background: #fde8e8;
+  color: #b91c1c;
+}
+.modal-status.loading {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+}
+.btn-secondary {
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-secondary:hover { background: var(--page-bg); }
+.btn-primary {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.btn-primary:hover { opacity: .92; }
+.btn-primary:disabled { opacity: .55; cursor: not-allowed; }
+
 :root[data-theme="dark"] header { background: color-mix(in srgb, var(--surface) 96%, transparent); }
 :root[data-theme="dark"] select,
 :root[data-theme="dark"] #refresh-page {

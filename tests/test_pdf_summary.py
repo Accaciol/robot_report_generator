@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.pdf_summary import build_summary, render_pdf
+from core.pdf_summary import build_summary, collect_systems_data, render_custom_pdf, render_pdf
+from core.sqlite_store import SQLiteStore
 from models import ExecutionStats, ReportData, Status, SuiteResult, TestResult
 
 
@@ -44,3 +45,107 @@ class TestPdfSummary(unittest.TestCase):
                                            text=True, check=True).stdout
                 self.assertIn('Resumo da execução ágil', extracted)
                 self.assertIn('Nenhum teste com falha', extracted)
+
+    def test_render_custom_pdf_multi_systems_and_sections(self):
+        with tempfile.TemporaryDirectory() as directory:
+            sys1 = {
+                "id": "sys-alpha",
+                "name": "Sistema Alpha",
+                "version": "1.0.0",
+                "date": "2026-10-15 10:00:00",
+                "stats": {"total": 10, "passed": 8, "failed": 2, "skipped": 0, "pass_rate": 80.0, "elapsed_s": 5.0},
+                "suites": [{"name": "Auth", "total": 10, "passed": 8, "failed": 2, "skipped": 0}],
+                "failures": [{"test": "Login Invalido", "suite": "Auth", "message": "Senha incorreta"}],
+                "history": [{"timestamp": "2026-10-15 10:00:00", "version": "1.0.0", "total": 10, "passed": 8, "failed": 2, "pass_rate": 80.0, "elapsed_s": 5.0}],
+                "slowest": [{"name": "Login Invalido", "suite": "Auth", "elapsed_s": 3.0}],
+            }
+            sys2 = {
+                "id": "sys-beta",
+                "name": "Sistema Beta",
+                "version": "2.1.0",
+                "date": "2026-10-15 11:00:00",
+                "stats": {"total": 20, "passed": 20, "failed": 0, "skipped": 0, "pass_rate": 100.0, "elapsed_s": 15.0},
+                "suites": [{"name": "Checkout", "total": 20, "passed": 20, "failed": 0, "skipped": 0}],
+                "failures": [],
+                "history": [],
+                "slowest": [],
+            }
+            pdf_path = Path(directory) / "multi_relatorio.pdf"
+            result = render_custom_pdf([sys1, sys2], pdf_path, title="Relatório Geral QA", sections=["executive", "suites", "failures"])
+            self.assertEqual(result, pdf_path)
+            self.assertTrue(pdf_path.read_bytes().startswith(b"%PDF-"))
+
+            if shutil.which("pdftotext"):
+                text = subprocess.run(["pdftotext", str(pdf_path), "-"], capture_output=True, text=True, check=True).stdout
+                self.assertIn("Relatório Geral QA", text)
+                self.assertIn("Sistema Alpha", text)
+                self.assertIn("Sistema Beta", text)
+                self.assertIn("Visão executiva consolidada", text)
+                self.assertIn("Comparativo entre sistemas", text)
+
+    def test_collect_systems_data_from_store(self):
+        from models import HistoryEntry
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "test.sqlite3"
+            store = SQLiteStore(db_path)
+            entry = HistoryEntry(
+                timestamp="2026-10-15T12:00:00",
+                total=5,
+                passed=5,
+                failed=0,
+                skipped=0,
+                elapsed_s=1.2,
+                pass_rate=100.0,
+                version="1.0.0",
+                system_version="1.0.0",
+                tests=[{"test_name": "T1", "suite_name": "S1", "status": "PASS", "elapsed_s": 1.2}],
+            )
+            store.import_history_entries("pagamentos", "Pagamentos", [entry])
+            data = collect_systems_data(store, ["pagamentos"])
+            self.assertEqual(len(data), 1)
+            self.assertEqual(data[0]["id"], "pagamentos")
+            self.assertEqual(data[0]["name"], "Pagamentos")
+            self.assertEqual(data[0]["stats"]["total"], 5)
+            self.assertEqual(data[0]["stats"]["passed"], 5)
+
+    def test_public_api_custom_pdf_endpoint(self):
+        from core.web_app import create_app
+        from models import HistoryEntry
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "test.sqlite3"
+            store = SQLiteStore(db_path)
+            entry = HistoryEntry(
+                timestamp="2026-10-15T12:00:00",
+                total=10,
+                passed=9,
+                failed=1,
+                skipped=0,
+                elapsed_s=3.5,
+                pass_rate=90.0,
+                version="1.0.0",
+                system_version="1.0.0",
+                tests=[{"test_name": "T1", "suite_name": "S1", "status": "FAIL", "elapsed_s": 1.2}],
+            )
+            store.import_history_entries("checkout", "Checkout", [entry])
+            app = create_app({"DATABASE": str(db_path)})
+            client = app.test_client()
+
+            # Test GET
+            res_get = client.get("/public/api/pdf?systems=checkout&sections=executive,failures&title=Teste+PDF")
+            self.assertEqual(res_get.status_code, 200)
+            self.assertEqual(res_get.mimetype, "application/pdf")
+            self.assertTrue(res_get.data.startswith(b"%PDF-"))
+            res_get.close()
+
+            # Test POST
+            res_post = client.post("/public/api/pdf", json={
+                "systems": ["checkout"],
+                "sections": ["executive", "suites"],
+                "title": "Relatório Customizado",
+            })
+            self.assertEqual(res_post.status_code, 200)
+            self.assertEqual(res_post.mimetype, "application/pdf")
+            self.assertTrue(res_post.data.startswith(b"%PDF-"))
+            res_post.close()
+
+

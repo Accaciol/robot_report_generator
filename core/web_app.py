@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hmac
+import os
 import secrets
 import shutil
 import tempfile
@@ -42,6 +43,7 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     )
     app.config.update(
         SESSION_TOKEN=secrets.token_urlsafe(32),
+        INGEST_TOKEN=app.config.get("INGEST_TOKEN", os.environ.get("ROBOT_REPORT_INGEST_TOKEN", "")),
         LOCAL_ORIGIN="http://127.0.0.1:5000",
         DATABASE=database,
         MAX_CONTENT_LENGTH=upload_limit + 1024 * 1024,
@@ -60,8 +62,19 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     def valid_token(value: str | None) -> bool:
         return hmac.compare_digest((value or "").encode(), app.config["SESSION_TOKEN"].encode())
 
+    def valid_ingest_token() -> bool:
+        expected = str(app.config.get("INGEST_TOKEN", ""))
+        supplied = request.headers.get("Authorization", "")
+        if supplied.lower().startswith("bearer "):
+            supplied = supplied[7:]
+        return bool(expected) and hmac.compare_digest(supplied.encode(), expected.encode())
+
     @app.before_request
     def protect():
+        if request.path.startswith("/api/automation/"):
+            if not valid_ingest_token():
+                abort(403)
+            return
         public_path = (
             request.path == "/public"
             or request.path.startswith("/public/")
@@ -69,6 +82,10 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         )
         if public_path:
             # The shared catalog is intentionally read-only; all state changes stay local.
+            if request.path == "/public/api/pdf":
+                if request.method not in ("GET", "HEAD", "POST"):
+                    abort(405)
+                return
             if request.method not in ("GET", "HEAD"):
                 abort(405)
             return
@@ -167,6 +184,46 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         except ValueError as exc:
             abort(404, description=str(exc))
         return Response(html, mimetype="text/html", headers={"Cache-Control": "no-store"})
+
+    @app.route("/public/api/pdf", methods=["GET", "POST"])
+    def public_generate_custom_pdf():
+        store = SQLiteStore(Path(app.config["DATABASE"]))
+        if request.method == "POST":
+            data = request.get_json(silent=True) or {}
+            system_ids = data.get("systems")
+            sections = data.get("sections")
+            title = data.get("title") or "Relatório de Testes Automatizados"
+        else:
+            system_ids_param = request.args.get("systems", "").strip()
+            system_ids = [s.strip() for s in system_ids_param.split(",") if s.strip()] if system_ids_param else None
+            sections_param = request.args.get("sections", "").strip()
+            sections = [s.strip() for s in sections_param.split(",") if s.strip()] if sections_param else None
+            title = request.args.get("title") or "Relatório de Testes Automatizados"
+
+        from core.pdf_summary import collect_systems_data, render_custom_pdf
+        try:
+            systems = collect_systems_data(store, system_ids)
+            if not systems:
+                return jsonify(error="Nenhum sistema com histórico encontrado."), 404
+
+            temp_dir = tempfile.TemporaryDirectory(prefix="robot-report-pdf-")
+            pdf_path = Path(temp_dir.name) / "relatorio_testes.pdf"
+            render_custom_pdf(systems, pdf_path, title=title, sections=sections)
+
+            response = send_file(
+                pdf_path,
+                as_attachment=True,
+                download_name="relatorio_testes.pdf",
+                mimetype="application/pdf",
+            )
+            response.call_on_close(temp_dir.cleanup)
+            return response
+        except Exception as exc:
+            return jsonify(error=f"Erro ao gerar PDF: {exc}"), 500
+
+    @app.route("/api/reports/pdf/custom", methods=["GET", "POST"])
+    def api_generate_custom_pdf():
+        return public_generate_custom_pdf()
 
     @app.post("/api/session")
     def session():
@@ -287,6 +344,55 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             return jsonify(imports.prepare_upload(upload.stream, upload.filename))
         except (OSError, ValueError) as exc:
             return jsonify(error=str(exc)), 400
+
+    @app.post("/api/automation/imports")
+    def automation_import():
+        """Accept and queue a Robot results ZIP in one authenticated request."""
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            return jsonify(error="Envie o ZIP no campo 'file'."), 400
+        system_id = request.form.get("system_id", "")
+        name = request.form.get("system_name", "")
+        version = request.form.get("system_version", "")
+        try:
+            SQLiteStore.validate_system_id(system_id)
+            if not name.strip() or len(name) > 200:
+                raise ValueError("Informe um nome de sistema válido (até 200 caracteres).")
+            if not version.strip() or len(version) > 200:
+                raise ValueError("Informe uma versão válida (até 200 caracteres).")
+            prepared_data = imports.prepare_upload(upload.stream, upload.filename)
+            if not prepared_data.get("execution_date"):
+                imports.discard_upload(prepared_data["upload_id"])
+                raise ValueError("O output.xml não contém a data de execução.")
+            prepared = imports.consume_upload(prepared_data["upload_id"])
+            source = {
+                "path": prepared.results_dir,
+                "archive_path": prepared.archive,
+                "cleanup_dir": prepared.stage_dir,
+                "system_id": system_id,
+                "name": name.strip(),
+                "system_version": version.strip(),
+                # The parser returns a datetime object; the normal CLI derives
+                # the canonical timestamp directly from output.xml.
+                "execution_date": None,
+            }
+            with jobs.lock:
+                if jobs.active or jobs.closing:
+                    shutil.rmtree(prepared.stage_dir, ignore_errors=True)
+                    return jsonify(error="Já existe uma importação ativa ou o servidor está encerrando."), 409
+                run_id = jobs.start([source], Path(app.config["DATABASE"]))
+            return jsonify(import_id=run_id, status_url=f"/api/automation/imports/{run_id}"), 202
+        except RuntimeError as exc:
+            return jsonify(error=str(exc)), 409
+        except (OSError, ValueError, TypeError) as exc:
+            return jsonify(error=str(exc)), 400
+
+    @app.get("/api/automation/imports/<run_id>")
+    def automation_import_status(run_id: str):
+        status = jobs.status(run_id)
+        if status is None:
+            return jsonify(error="Importação inexistente ou expirada."), 404
+        return jsonify(status)
 
     @app.post("/api/imports")
     def commit_import():

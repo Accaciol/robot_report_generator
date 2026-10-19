@@ -55,6 +55,10 @@ def parse_args() -> argparse.Namespace:
                         help="Não converte imagens em Base64")
     parser.add_argument("--issue-url", default="",
                         help="Padrão de URL de tickets (ex.: https://jira/browse/{id})")
+    parser.add_argument("--pdf", help="Gera relatório customizado em PDF no caminho especificado")
+    parser.add_argument("--pdf-systems", help="Lista de IDs de sistemas separados por vírgula para o PDF")
+    parser.add_argument("--pdf-sections", help="Seções a incluir no PDF separadas por vírgula (executive,distribution,suites,failures,history,slowest)")
+    parser.add_argument("--pdf-title", help="Título exibido no relatório PDF")
     args = parser.parse_args()
     if args.catalog_report and (args.results_dir or args.input_zip or args.output_xml or args.archive_zip):
         parser.error("--catalog-report não aceita entradas de execução")
@@ -78,9 +82,32 @@ def _history_for_report(store: SQLiteStore, system_id: str) -> list:
         return []
 
 
+def _generate_cli_pdf(args: argparse.Namespace, store: SQLiteStore) -> int:
+    from core.pdf_summary import collect_systems_data, render_custom_pdf
+    pdf_path = Path(args.pdf).expanduser().resolve()
+    system_ids = [s.strip() for s in args.pdf_systems.split(",") if s.strip()] if args.pdf_systems else None
+    sections = [s.strip() for s in args.pdf_sections.split(",") if s.strip()] if args.pdf_sections else None
+    title = args.pdf_title or args.title or "Relatório de Testes Automatizados"
+    try:
+        systems = collect_systems_data(store, system_ids)
+        if not systems:
+            logger.error("Nenhum sistema com histórico encontrado no banco para gerar o PDF.")
+            return 1
+        render_custom_pdf(systems, pdf_path, title=title, sections=sections)
+        logger.info("Relatório PDF gerado em: %s", pdf_path)
+        return 0
+    except Exception as exc:
+        logger.error("Erro ao gerar relatório em PDF: %s", exc)
+        return 1
+
+
 def _run(args: argparse.Namespace) -> int:
     database = Path(args.database).expanduser().resolve()
     store = SQLiteStore(database)
+
+    has_input = bool(args.catalog_report or args.results_dir or args.output_xml or (not args.pdf and Path("output.xml").is_file()))
+    if args.pdf and not has_input:
+        return _generate_cli_pdf(args, store)
 
     if args.catalog_report:
         from core.catalog_report import render_catalog, render_site
@@ -159,6 +186,8 @@ def _run(args: argparse.Namespace) -> int:
     if args.summary_json:
         Path(args.summary_json).write_text(json.dumps(build_summary(report_data), ensure_ascii=False),
                                            encoding="utf-8")
+    if args.pdf:
+        _generate_cli_pdf(args, store)
     logger.info("Relatório gerado em: %s (Total=%d, Pass=%d, Fail=%d, Skip=%d, Taxa=%.1f%%)",
                 out_path, stats.total, stats.passed, stats.failed, stats.skipped, stats.pass_rate)
     return 1 if args.fail_on_error and stats.failed > 0 else 0

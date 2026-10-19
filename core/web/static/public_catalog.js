@@ -10,9 +10,23 @@ const systemsTrendLegend = document.querySelector('#systems-trend-legend');
 const overviewPeriod = document.querySelector('#overview-period');
 const systemsList = document.querySelector('#systems');
 const reportSection = document.querySelector('#report-section');
-const report = document.querySelector('#report');
 const reportStatus = document.querySelector('#report-status');
+const report = document.querySelector('#report');
 const overview = document.querySelector('#overview');
+let loadedSystems = [];
+
+const pdfModal = document.querySelector('#pdf-modal');
+const openPdfModalBtn = document.querySelector('#open-pdf-modal');
+const closePdfModalBtn = document.querySelector('#close-pdf-modal');
+const cancelPdfModalBtn = document.querySelector('#cancel-pdf-modal');
+const submitPdfModalBtn = document.querySelector('#submit-pdf-modal');
+const pdfTitleInput = document.querySelector('#pdf-title');
+const pdfSystemsContainer = document.querySelector('#pdf-systems-container');
+const pdfStatus = document.querySelector('#pdf-status');
+const pdfAllSystemsBtn = document.querySelector('#pdf-all-systems');
+const pdfNoneSystemsBtn = document.querySelector('#pdf-none-systems');
+const pdfAllSectionsBtn = document.querySelector('#pdf-all-sections');
+const pdfNoneSectionsBtn = document.querySelector('#pdf-none-sections');
 
 function getTheme() {
   try {
@@ -311,8 +325,9 @@ async function loadSystems() {
   if (!response.ok) throw new Error('Não foi possível carregar os sistemas.');
 
   const data = await response.json();
+  loadedSystems = data.systems || [];
   select.replaceChildren(new Option('Visão geral', ''));
-  data.systems.forEach((system) => {
+  loadedSystems.forEach((system) => {
     select.add(new Option(
       `${system.name} · ${system.id} (${system.executions} execuções)`,
       system.id
@@ -321,21 +336,124 @@ async function loadSystems() {
   });
 
   select.disabled = false;
-  statusText.textContent = data.systems.length
+  statusText.textContent = loadedSystems.length
     ? 'Selecione um sistema para abrir o relatório completo.'
     : 'Nenhum sistema foi importado ainda.';
 
   const requestedId = new URLSearchParams(location.search).get('system');
-  const requestedSystem = data.systems.find((system) => system.id === requestedId);
+  const requestedSystem = loadedSystems.find((system) => system.id === requestedId);
   if (requestedSystem) {
     select.value = requestedId;
     showReport(requestedId, requestedSystem.name);
   }
 }
 
+function openPdfModal() {
+  if (!pdfModal) return;
+  pdfSystemsContainer.innerHTML = '';
+  const currentSelectedSystem = select.value;
+
+  if (loadedSystems.length === 0) {
+    pdfSystemsContainer.innerHTML = '<p style="margin:4px 0; color:var(--muted)">Nenhum sistema disponível no catálogo.</p>';
+  } else {
+    loadedSystems.forEach((sys) => {
+      const label = document.createElement('label');
+      label.className = 'checkbox-item';
+      const isChecked = !currentSelectedSystem || currentSelectedSystem === sys.id;
+      label.innerHTML = `
+        <input type="checkbox" name="pdf_sys" value="${sys.id}" ${isChecked ? 'checked' : ''}>
+        <span><strong>${sys.name}</strong> <small style="color:var(--muted)">· ${sys.id} (${sys.system_version || 'sem versão'})</small></span>
+      `;
+      pdfSystemsContainer.appendChild(label);
+    });
+  }
+
+  if (currentSelectedSystem && select.selectedOptions[0]) {
+    pdfTitleInput.value = `Relatório de Testes — ${select.selectedOptions[0].textContent.split('·')[0].trim()}`;
+  } else {
+    pdfTitleInput.value = 'Relatório Consolidado de Testes Automatizados';
+  }
+
+  pdfStatus.hidden = true;
+  pdfStatus.textContent = '';
+  pdfStatus.className = 'modal-status';
+  submitPdfModalBtn.disabled = false;
+  submitPdfModalBtn.textContent = 'Baixar PDF';
+  pdfModal.hidden = false;
+}
+
+function closePdfModal() {
+  if (pdfModal) pdfModal.hidden = true;
+}
+
+async function generateCustomPdf() {
+  const selectedSystems = Array.from(document.querySelectorAll('input[name="pdf_sys"]:checked')).map((i) => i.value);
+  const selectedSections = Array.from(document.querySelectorAll('input[name="pdf_sec"]:checked')).map((i) => i.value);
+  const title = pdfTitleInput.value.trim() || 'Relatório de Testes Automatizados';
+
+  if (selectedSystems.length === 0) {
+    pdfStatus.hidden = false;
+    pdfStatus.className = 'modal-status error';
+    pdfStatus.textContent = 'Selecione pelo menos um sistema para o relatório.';
+    return;
+  }
+
+  if (selectedSections.length === 0) {
+    pdfStatus.hidden = false;
+    pdfStatus.className = 'modal-status error';
+    pdfStatus.textContent = 'Selecione pelo menos uma informação/seção para incluir.';
+    return;
+  }
+
+  submitPdfModalBtn.disabled = true;
+  submitPdfModalBtn.textContent = 'Gerando PDF...';
+  pdfStatus.hidden = false;
+  pdfStatus.className = 'modal-status loading';
+  pdfStatus.textContent = 'Processando dados e compilando documento paginado...';
+
+  try {
+    const response = await fetch('/public/api/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systems: selectedSystems,
+        sections: selectedSections,
+        title: title,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Falha ao gerar o relatório PDF.');
+    }
+
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const safeName = selectedSystems.length === 1 ? selectedSystems[0] : 'consolidado';
+    link.href = downloadUrl;
+    link.download = `relatorio_${safeName}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(downloadUrl);
+
+    closePdfModal();
+  } catch (error) {
+    pdfStatus.hidden = false;
+    pdfStatus.className = 'modal-status error';
+    pdfStatus.textContent = error.message;
+    submitPdfModalBtn.disabled = false;
+    submitPdfModalBtn.textContent = 'Baixar PDF';
+  }
+}
+
 async function initialize() {
   try {
     await loadSystems();
+    if (location.hash === '#export-pdf') {
+      openPdfModal();
+    }
   } catch (error) {
     statusText.textContent = error.message;
     select.disabled = true;
@@ -364,4 +482,43 @@ overviewPeriod.addEventListener('change', () => {
 });
 document.querySelector('#refresh-page').addEventListener('click', () => location.reload());
 
+if (openPdfModalBtn) openPdfModalBtn.addEventListener('click', openPdfModal);
+if (closePdfModalBtn) closePdfModalBtn.addEventListener('click', closePdfModal);
+if (cancelPdfModalBtn) cancelPdfModalBtn.addEventListener('click', closePdfModal);
+if (submitPdfModalBtn) submitPdfModalBtn.addEventListener('click', generateCustomPdf);
+
+if (pdfAllSystemsBtn) {
+  pdfAllSystemsBtn.addEventListener('click', () => {
+    document.querySelectorAll('input[name="pdf_sys"]').forEach((i) => { i.checked = true; });
+  });
+}
+if (pdfNoneSystemsBtn) {
+  pdfNoneSystemsBtn.addEventListener('click', () => {
+    document.querySelectorAll('input[name="pdf_sys"]').forEach((i) => { i.checked = false; });
+  });
+}
+if (pdfAllSectionsBtn) {
+  pdfAllSectionsBtn.addEventListener('click', () => {
+    document.querySelectorAll('input[name="pdf_sec"]').forEach((i) => { i.checked = true; });
+  });
+}
+if (pdfNoneSectionsBtn) {
+  pdfNoneSectionsBtn.addEventListener('click', () => {
+    document.querySelectorAll('input[name="pdf_sec"]').forEach((i) => { i.checked = false; });
+  });
+}
+
+if (pdfModal) {
+  pdfModal.addEventListener('click', (event) => {
+    if (event.target === pdfModal) closePdfModal();
+  });
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && pdfModal && !pdfModal.hidden) {
+    closePdfModal();
+  }
+});
+
 initialize();
+

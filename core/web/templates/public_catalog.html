@@ -15,6 +15,7 @@
       <label for="system-select">VISUALIZAR SISTEMA</label>
       <select id="system-select" disabled><option value="">Carregando sistemas…</option></select>
     </div>
+    <button id="open-pdf-modal" type="button" class="btn-pdf-export" aria-label="Exportar PDF customizado">📄 <span>Exportar PDF</span></button>
     <button id="refresh-page" type="button" aria-label="Atualizar dados">↻ <span>Atualizar</span></button>
   </header>
   <main>
@@ -36,6 +37,53 @@
       <p id="report-status" role="status" hidden></p>
       <iframe id="report" title="Relatório detalhado do sistema" sandbox="allow-scripts allow-downloads allow-popups"></iframe>
     </section>
+
+    <div id="pdf-modal" class="modal-backdrop" hidden>
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="pdf-modal-title">
+        <div class="modal-header">
+          <h2 id="pdf-modal-title">Gerar Relatório em PDF</h2>
+          <button id="close-pdf-modal" type="button" class="btn-close" aria-label="Fechar">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-field">
+            <label for="pdf-title">Título do relatório</label>
+            <input type="text" id="pdf-title" value="Relatório de Testes Automatizados">
+          </div>
+          <div class="modal-field">
+            <div class="field-header">
+              <span class="field-label">Sistemas a incluir</span>
+              <div class="field-actions">
+                <button type="button" id="pdf-all-systems" class="btn-link">Selecionar todos</button>
+                <button type="button" id="pdf-none-systems" class="btn-link">Limpar</button>
+              </div>
+            </div>
+            <div id="pdf-systems-container" class="checkbox-list"></div>
+          </div>
+          <div class="modal-field">
+            <div class="field-header">
+              <span class="field-label">Informações a incluir</span>
+              <div class="field-actions">
+                <button type="button" id="pdf-all-sections" class="btn-link">Selecionar todas</button>
+                <button type="button" id="pdf-none-sections" class="btn-link">Limpar</button>
+              </div>
+            </div>
+            <div class="checkbox-list">
+              <label class="checkbox-item"><input type="checkbox" name="pdf_sec" value="executive" checked> <span><strong>Visão Executiva</strong> — Cards de cenários, aprovação e duração</span></label>
+              <label class="checkbox-item"><input type="checkbox" name="pdf_sec" value="distribution" checked> <span><strong>Distribuição Visual</strong> — Barra gráfica e proporção dos resultados</span></label>
+              <label class="checkbox-item"><input type="checkbox" name="pdf_sec" value="suites" checked> <span><strong>Resumo por Suíte</strong> — Tabela detalhada de status por módulo</span></label>
+              <label class="checkbox-item"><input type="checkbox" name="pdf_sec" value="failures" checked> <span><strong>Detalhamento de Falhas</strong> — Listagem de testes que falharam com erro</span></label>
+              <label class="checkbox-item"><input type="checkbox" name="pdf_sec" value="history" checked> <span><strong>Histórico Recente</strong> — Tabela das últimas execuções</span></label>
+              <label class="checkbox-item"><input type="checkbox" name="pdf_sec" value="slowest" checked> <span><strong>Testes Mais Lentos</strong> — Top 10 cenários de maior tempo</span></label>
+            </div>
+          </div>
+          <p id="pdf-status" class="modal-status" role="status" hidden></p>
+        </div>
+        <div class="modal-footer">
+          <button id="cancel-pdf-modal" type="button" class="btn-secondary">Cancelar</button>
+          <button id="submit-pdf-modal" type="button" class="btn-primary">Baixar PDF</button>
+        </div>
+      </div>
+    </div>
   </main>
 </body>
 </html>
