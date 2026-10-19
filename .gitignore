@@ -10,16 +10,15 @@ venv/
 ENV/
 env/
 
-# Root test output and artifacts
+# Local run data and generated artifacts
+/local-data/
 /output.xml
 relatorio*.html
-/history.json
 /robot-results/report_history.sqlite3
 /robot-results/report_history.sqlite3-wal
 /robot-results/report_history.sqlite3-shm
 /robot-results/executions/
 /pipeline-site/
-/pipeline-state/
 /report_history.sqlite3
 /report_history.sqlite3-wal
 /report_history.sqlite3-shm
@@ -42,3 +41,4 @@ relatorio*.html
 build/
 dist/
 *.egg-info/
+/history.json

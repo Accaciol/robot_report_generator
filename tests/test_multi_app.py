@@ -39,7 +39,7 @@ class TestMultiApp(unittest.TestCase):
         self.catalog.import_results(make_results(self.root, 10, marker="alpha"), "alpha", "Alpha")
         self.catalog.import_results(make_results(self.root, 11, marker="beta"), "beta", "Beta")
         site = self.root / "site"
-        render_site(self.catalog.root, site, "Testes")
+        render_site(self.catalog.database, site, "Testes")
         index = (site / "index.html").read_text()
         self.assertIn("Visão geral", index)
         self.assertIn("systems/alpha.html", index)
@@ -52,7 +52,7 @@ class TestMultiApp(unittest.TestCase):
         self.assertNotIn("authenticated", json.dumps(config))
         first = (site / "systems/beta.html").read_bytes()
         self.catalog.remove("beta", self.catalog.load("beta")[1][0].execution_id)
-        render_site(self.catalog.root, site, "Testes")
+        render_site(self.catalog.database, site, "Testes")
         self.assertFalse((site / "systems/beta.html").exists())
         self.assertTrue(first)
 
@@ -62,11 +62,11 @@ class TestMultiApp(unittest.TestCase):
                 patch("core.azure_publish.shutil.which", return_value="/usr/bin/swa"), \
                 patch("core.azure_publish.subprocess.run") as run:
             run.return_value.returncode = 0
-            self.assertTrue(publish_if_configured(self.catalog.root))
+            self.assertTrue(publish_if_configured(self.catalog.database))
             args, kwargs = run.call_args
             self.assertNotIn("secret-value", str(args))
             self.assertEqual(kwargs["env"]["SWA_CLI_DEPLOYMENT_TOKEN"], "secret-value")
             self.assertNotIn("ROBOT_REPORT_SWA_TOKEN", kwargs["env"])
             run.return_value.returncode = 2
             with self.assertRaisesRegex(RuntimeError, "código 2"):
-                publish_if_configured(self.catalog.root)
+                publish_if_configured(self.catalog.database)

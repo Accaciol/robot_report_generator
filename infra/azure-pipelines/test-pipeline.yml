@@ -5,7 +5,7 @@ pool:
   name: Default
 
 steps:
-  - template: azure-pipelines/robot-report-import.yml
+  - template: infra/azure-pipelines/robot-report-import.yml
     parameters:
       resultsDirectory: '$(Build.SourcesDirectory)/results'
       serverUrl: 'http://127.0.0.1:5000'

@@ -403,65 +403,6 @@ async function removeExecution(systemId, executionId) {
   }
 }
 
-async function downloadBackup() {
-  const status = $('maintenance-status');
-  status.textContent = 'Preparando backup completo…';
-
-  try {
-    const response = await fetch('/api/database/backup', {
-      headers: {'X-Session-Token': sessionToken},
-      cache: 'no-store',
-    });
-    if (!response.ok) {
-      const result = await response.json();
-      throw new Error(result.error || 'Falha ao criar backup.');
-    }
-
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'robot-report-backup.zip';
-    link.click();
-    URL.revokeObjectURL(url);
-    status.textContent = 'Backup completo baixado (SQLite e artefatos).';
-  } catch (error) {
-    status.textContent = error.message;
-  }
-}
-
-async function restoreBackup() {
-  const file = $('restore-database').files[0];
-  if (!file) {
-    $('maintenance-status').textContent = 'Selecione um pacote ZIP de backup.';
-    return;
-  }
-  if (!confirm('Restaurar este backup substituirá o histórico e os arquivos atuais. Deseja continuar?')) {
-    return;
-  }
-
-  const status = $('maintenance-status');
-  const form = new FormData();
-  form.append('file', file);
-  status.textContent = 'Validando e restaurando backup…';
-
-  try {
-    const response = await fetch('/api/database/restore', {
-      method: 'POST',
-      headers: {'X-Session-Token': sessionToken},
-      body: form,
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Falha ao restaurar backup.');
-
-    status.textContent = `Backup restaurado · ${result.systems} sistema(s).`;
-    await refreshSystems();
-    if ($('history-system').value) await $('refresh-history').onclick();
-  } catch (error) {
-    status.textContent = error.message;
-  }
-}
-
 async function cleanupArtifacts() {
   const status = $('maintenance-status');
 
@@ -563,8 +504,6 @@ $('refresh-history').onclick = async () => {
     $('history-status').textContent = error.message;
   }
 };
-$('backup-database').onclick = downloadBackup;
-$('restore-database-button').onclick = restoreBackup;
 $('cleanup-artifacts').onclick = cleanupArtifacts;
 $('tab-log').onclick = showLogTab;
 $('tab-errors').onclick = showErrorsTab;

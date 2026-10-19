@@ -38,7 +38,7 @@ def render_catalog(
         })
         has_failures |= data.stats.failed > 0
 
-    template_root = Path(__file__).resolve().parent.parent / "robot-results"
+    template_root = Path(__file__).resolve().parent.parent / "frontend" / "report_templates"
     renderer = ReportRenderer(template_root)
     html = renderer.env.get_template("catalog_template.html").render(
         title=title,
@@ -46,7 +46,9 @@ def render_catalog(
         site_mode=False,
         overviews=_overview_by_period(entries, PERIODS),
     )
-    Path(output_path).write_text(html, encoding="utf-8")
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(html, encoding="utf-8")
     return has_failures
 
 
@@ -92,7 +94,7 @@ def render_site(
         if f"systems/{old_report.name}" not in current_reports:
             old_report.unlink()
 
-    renderer = ReportRenderer(Path(__file__).resolve().parent.parent / "robot-results")
+    renderer = ReportRenderer(Path(__file__).resolve().parent.parent / "frontend" / "report_templates")
     version = datetime.now(timezone.utc).isoformat()
     index_template = renderer.env.get_template("catalog_template.html")
     index_html = index_template.render(

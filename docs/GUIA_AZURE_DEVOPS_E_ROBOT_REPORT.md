@@ -32,7 +32,7 @@ A pasta `~/myagent` contém o programa do agente. Os arquivos temporários da pi
 
 ## 3. Função da pipeline
 
-O YAML define os passos executados pelo Azure DevOps. O template [`azure-pipelines/robot-report-import.yml`](../azure-pipelines/robot-report-import.yml) recebe parâmetros e:
+O YAML define os passos executados pelo Azure DevOps. O template [`infra/azure-pipelines/robot-report-import.yml`](../infra/azure-pipelines/robot-report-import.yml) recebe parâmetros e:
 
 1. Localiza a pasta de resultados, que deve conter `output.xml`.
 2. Compacta os resultados em um ZIP.
@@ -148,7 +148,7 @@ Esta tabela acompanha uma execução desde a preparação dos testes até a cons
 | Manter o servidor disponível | Administrador da aplicação/host | Receber as importações e servir os relatórios. | `gui.py`/Flask no teste; topologia de produção ainda precisa ser definida |
 | Gerir PAT e token de ingestão | Administradores Azure DevOps e do servidor, cada um no seu escopo | Permitir registro do agente e autenticação da API sem expor segredos no código. | PAT, variável secreta e variável de ambiente `ROBOT_REPORT_INGEST_TOKEN` |
 | Definir exposição de dados | Segurança, proprietário dos dados e responsável pela aplicação | Decidir se XML, mensagens, evidências e relatórios podem ser consultados sem login na rede planejada. | Configuração de rede e rotas públicas `/public` |
-| Proteger e manter dados | Administrador do host e proprietário operacional | Definir backup, retenção, restauração e acesso ao banco e aos artefatos. | SQLite, diretório de artefatos, backup e permissões do sistema operacional |
+| Proteger e manter dados | Administrador do host e proprietário operacional | Definir retenção, recuperação e acesso ao banco e aos artefatos. | SQLite, diretório de artefatos e permissões do sistema operacional |
 
 ### Limite entre o que é automático e o que depende de pessoas
 

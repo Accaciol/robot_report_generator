@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`main.py` provides the report CLI, `gui.py` starts the local Flask interface, and `models.py` defines shared data classes. Keep parsing, history, catalog, rendering, and web logic in their matching `core/` modules. Report HTML lives in `templates/`; the web interface uses `core/web/templates/` and `core/web/static/`. Tests are in `tests/`, sample Robot output is in `example/`, and `scripts/update_robot_results.py` manages the system results catalog under `robot-results/`.
+`main.py` provides the report CLI, `gui.py` starts the local Flask interface, and `models.py` defines shared data classes. Keep parsing, history, catalog, rendering, and web logic in their matching `core/` modules. Report templates live in `frontend/report_templates/`; the web interface uses `frontend/web/templates/` and `frontend/web/static/`. Deployment files live in `infra/`. Tests are in `tests/`, sample Robot output is in `example/`, and `scripts/update_robot_results.py` manages the system results catalog under `robot-results/`.
 
 ## Build, Test, and Development Commands
 
@@ -22,4 +22,4 @@ Tests use `unittest` classes and assertions, with files named `test_*.py` and me
 
 ## Commit & Pull Request Guidelines
 
-Recent commits commonly use short `feat:` or `fix:` subjects; follow that pattern with an imperative summary of the change. In pull requests, describe the user-visible behavior, list the tests run, and link a relevant issue when available. Include screenshots for web interface or report layout changes. Keep generated `output.xml`, `history.json`, and `relatorio*.html` out of commits unless they are intentional fixtures; root output files are ignored by Git.
+Recent commits commonly use short `feat:` or `fix:` subjects; follow that pattern with an imperative summary of the change. In pull requests, describe the user-visible behavior, list the tests run, and link a relevant issue when available. Include screenshots for web interface or report layout changes. Keep local inputs, generated reports, SQLite files, and pipeline state under `local-data/` or `robot-results/`; these are ignored by Git.

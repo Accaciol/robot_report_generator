@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot generator="Robot 7.4.2 (Python 3.14.8 on linux)" generated="2026-10-19T14:31:20.105699" rpa="false" schemaversion="5">
+<suite id="s1" name="Robot Report Generator" source="/home/accacio/Documents/robot_report_generator">
+<suite id="s1-s1" name="Example" source="/home/accacio/Documents/robot_report_generator/example">
+<suite id="s1-s1-s1" name="Login" source="/home/accacio/Documents/robot_report_generator/example/login.robot">
+<test id="s1-s1-s1-t1" name="Login com credenciais válidas" line="5">
+<kw name="Given o usuário está na página de login">
+<kw name="Log" owner="BuiltIn">
+<msg time="2026-10-19T14:31:20.228361" level="INFO">Navegando até /login</msg>
+<arg>Navegando até /login</arg>
+<doc>Logs the given message with the given level.</doc>
+<status status="PASS" start="2026-10-19T14:31:20.227696" elapsed="0.000926"/>
+</kw>
+<status status="PASS" start="2026-10-19T14:31:20.226695" elapsed="0.002169"/>
+</kw>
+<kw name="When o usuário informa credenciais válidas">
+<kw name="Log" owner="BuiltIn">
+<msg time="2026-10-19T14:31:20.230459" level="INFO">Preenchendo usuário e senha válidos</msg>
+<arg>Preenchendo usuário e senha válidos</arg>
+<doc>Logs the given message with the given level.</doc>
+<status status="PASS" start="2026-10-19T14:31:20.230029" elapsed="0.000607"/>
+</kw>
+<status status="PASS" start="2026-10-19T14:31:20.229491" elapsed="0.001306"/>
+</kw>
+<kw name="Then o usuário vê o dashboard">
+<kw name="Log" owner="BuiltIn">
+<msg time="2026-10-19T14:31:20.232167" level="INFO">Validando elemento do dashboard</msg>
+<arg>Validando elemento do dashboard</arg>
+<doc>Logs the given message with the given level.</doc>
+<status status="PASS" start="2026-10-19T14:31:20.231580" elapsed="0.000810"/>
+</kw>
+<status status="PASS" start="2026-10-19T14:31:20.231190" elapsed="0.001377"/>
+</kw>
+<doc>Scenario: usuário acessa o sistema com sucesso</doc>
+<tag>smoke</tag>
+<status status="PASS" start="2026-10-19T14:31:20.195627" elapsed="0.037265"/>
+</test>
+<doc>Feature: Login do usuário</doc>
+<status status="PASS" start="2026-10-19T14:31:20.191399" elapsed="0.047137"/>
+</suite>
+<status status="PASS" start="2026-10-19T14:31:20.179433" elapsed="0.062414"/>
+</suite>
+<status status="PASS" start="2026-10-19T14:31:20.119322" elapsed="0.125409"/>
+</suite>
+<statistics>
+<total>
+<stat pass="1" fail="0" skip="0">All Tests</stat>
+</total>
+<tag>
+<stat pass="1" fail="0" skip="0">smoke</stat>
+</tag>
+<suite>
+<stat name="Robot Report Generator" id="s1" pass="1" fail="0" skip="0">Robot Report Generator</stat>
+<stat name="Example" id="s1-s1" pass="1" fail="0" skip="0">Robot Report Generator.Example</stat>
+<stat name="Login" id="s1-s1-s1" pass="1" fail="0" skip="0">Robot Report Generator.Example.Login</stat>
+</suite>
+</statistics>
+<errors>
+</errors>
+</robot>

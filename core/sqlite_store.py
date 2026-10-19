@@ -120,45 +120,6 @@ class SQLiteStore:
                     COMMIT;
                 """)
 
-    def backup_to(self, destination: Path | str) -> Path:
-        """Create a consistent online SQLite backup, including committed WAL data."""
-        target = Path(destination).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with self._connection() as source:
-            backup = sqlite3.connect(target, timeout=30)
-            try:
-                source.backup(backup)
-                result = backup.execute("PRAGMA integrity_check").fetchone()[0]
-                if result != "ok":
-                    raise sqlite3.DatabaseError(f"Backup SQLite inválido: {result}")
-            finally:
-                backup.close()
-        return target
-
-    def restore_from(self, source_path: Path | str) -> None:
-        """Validate a SQLite backup and restore its contents into the live database."""
-        source_file = Path(source_path).expanduser().resolve()
-        if not source_file.is_file():
-            raise ValueError("Arquivo de backup não encontrado.")
-        source = sqlite3.connect(f"file:{source_file}?mode=ro", uri=True, timeout=30)
-        try:
-            integrity = source.execute("PRAGMA integrity_check").fetchone()[0]
-            tables = {row[0] for row in source.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'")}
-            version = source.execute("PRAGMA user_version").fetchone()[0]
-            required_tables = {"systems", "executions", "test_snapshots"}
-            if integrity != "ok" or not required_tables.issubset(tables):
-                raise ValueError("O arquivo não é um backup válido do Robot Reports.")
-            if version not in (1, self.SCHEMA_VERSION):
-                raise ValueError(f"Versão de banco incompatível: {version}.")
-            with self._connection() as destination:
-                source.backup(destination)
-        except sqlite3.DatabaseError as exc:
-            raise ValueError("Não foi possível ler o arquivo de backup SQLite.") from exc
-        finally:
-            source.close()
-        self._initialize()
-
     def orphaned_artifact_directories(self) -> list[Path]:
         """List artifact bundles not referenced by any registered execution."""
         with self._connection() as connection:
@@ -280,7 +241,7 @@ class SQLiteStore:
     def import_history_entries(
         self, system_id: str, system_name: str, entries: list[HistoryEntry]
     ) -> int:
-        """Import summary-only legacy entries without creating JSON storage."""
+        """Insert precomputed execution summaries directly into SQLite."""
         self.validate_system_id(system_id)
         if not system_name.strip():
             raise ValueError("Informe o nome do sistema.")

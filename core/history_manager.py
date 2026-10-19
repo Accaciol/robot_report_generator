@@ -23,13 +23,6 @@ class HistoryManager:
                 continue
         return value_str
 
-    @classmethod
-    def _version_label(cls, execution_start: str | None, history: list[HistoryEntry]) -> str:
-        timestamp = cls._timestamp(execution_start)
-        day = timestamp[:10] if len(timestamp) >= 10 else "sem-data"
-        same_day = sum(entry.version.startswith(day) for entry in history)
-        return f"{day} #{same_day + 1}"
-
     @staticmethod
     def _test_snapshots(suites: list[SuiteResult]) -> list[dict[str, object]]:
         snapshots: list[dict[str, object]] = []

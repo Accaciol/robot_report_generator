@@ -33,12 +33,10 @@ robot-report-gui = "gui:main"
 py-modules = ["main", "gui", "models"]
 
 [tool.setuptools.packages.find]
-include = ["core*", "templates*", "assets*"]
+include = ["core*", "frontend*"]
 
 [tool.setuptools.package-data]
-core = ["web/templates/*.html", "web/static/*.css", "web/static/*.js"]
-templates = ["*.html"]
-assets = ["*.js"]
+frontend = ["web/templates/*.html", "web/static/*.css", "web/static/*.js", "report_templates/*.html", "assets/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

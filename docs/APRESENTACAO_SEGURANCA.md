@@ -128,7 +128,7 @@ O projeto configura `Cache-Control: no-store`, `X-Content-Type-Options`, `Referr
 
 Esses cabeçalhos reduzem algumas classes de exposição no navegador. Não substituem HTTPS, autenticação, autorização ou controles de rede.
 
-O guia registra que `gui.py` usa o servidor de desenvolvimento Werkzeug. O `docker-compose.yml` publica a porta 5000 e escuta em `0.0.0.0`; o alcance depende do host, firewall e publicação de rede.
+O guia registra que `gui.py` usa o servidor de desenvolvimento Werkzeug. `infra/docker-compose.yml` publica a porta 5000 e escuta em `0.0.0.0`; o alcance depende do host, firewall e publicação de rede.
 
 **Referência:** `docs/SEGURANCA_ARQUITETURA.md`, “Cenário testado e diferença para produção” e “Controles HTTP observados”.
 
@@ -140,7 +140,7 @@ O guia registra que `gui.py` usa o servidor de desenvolvimento Werkzeug. O `dock
 2. O catálogo público é aceitável para essa classificação e para a rede planejada?
 3. Qual topologia aprovada atende agentes remotos, com HTTPS e controles de rede definidos?
 4. Quem administra e rotaciona o token de ingestão e os tokens de acesso ao agente?
-5. Quais são os requisitos de retenção, backup, restauração e remoção de artefatos?
+5. Quais são os requisitos de retenção, recuperação dos dados e remoção de artefatos?
 6. Quais controles de operação e isolamento devem existir antes de produção?
 
 **Resultado esperado da reunião:** decisões registradas, responsáveis definidos e pendências de produção priorizadas.

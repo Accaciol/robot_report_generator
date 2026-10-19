@@ -21,11 +21,11 @@ from models import KeywordResult, ReportData, SuiteResult
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_TEMPLATE_DIR = _PROJECT_ROOT / "templates"
+_TEMPLATE_DIR = _PROJECT_ROOT / "frontend" / "report_templates"
 # Vendorize o Chart.js aqui (baixe o build UMD minificado) para manter o
 # relatório 100% offline/standalone. Caso o arquivo não exista, o relatório
 # ainda é gerado, mas o gráfico de tendência fica indisponível.
-_CHART_JS_VENDOR = _PROJECT_ROOT / "assets" / "chart.umd.min.js"
+_CHART_JS_VENDOR = _PROJECT_ROOT / "frontend" / "assets" / "chart.umd.min.js"
 # Usado apenas como fallback quando o Chart.js não foi vendorizado localmente.
 # Nesse modo o relatório deixa de ser 100% offline (precisa de internet no
 # navegador que abrir o HTML), mas funciona sem nenhum passo manual.
@@ -147,6 +147,7 @@ class ReportRenderer:
     def render(self, data: ReportData, output_path: str) -> Path:
         html = self.render_html(data)
         out_path = Path(output_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = None
         try:
             with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=out_path.parent,

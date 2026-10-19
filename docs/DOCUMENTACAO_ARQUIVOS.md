@@ -2,7 +2,7 @@
 
 Este documento descreve os arquivos versionados do Robot Report Generator e a
 responsabilidade de cada um. Arquivos gerados durante a execução, como banco
-SQLite, relatórios exportados, uploads temporários e `pipeline-state/`, não são
+SQLite, relatórios exportados, uploads temporários e `local-data/`, não são
 código-fonte e ficam fora do Git.
 
 ## Arquivos da raiz
@@ -12,15 +12,15 @@ código-fonte e ficam fora do Git.
 | `AGENTS.md` | Orientações de estrutura, estilo, comandos e testes para quem trabalha no repositório. |
 | `.gitignore` | Impede que bancos, resultados e outros arquivos locais sejam adicionados por engano ao Git. |
 | `.dockerignore` | Define o que não deve ser enviado ao contexto durante a construção da imagem Docker. |
-| `Dockerfile` | Instala as dependências e monta a imagem da aplicação web. |
-| `docker-compose.yml` | Define o serviço web, a porta local e o volume persistente de dados. |
+| `infra/Dockerfile` | Instala as dependências e monta a imagem da aplicação web. |
+| `infra/docker-compose.yml` | Define o serviço web, a porta local e o volume persistente de dados. |
 | `README.md` | Apresenta o projeto, instalação, uso da CLI, interface e Docker. |
 | `docs/PLANEJAMENTO_ESCALABILIDADE.md` | Registra etapas e critérios para evolução da arquitetura. |
 | `docs/TESTE_AZURE_DEVOPS_LOCAL.md` | Passo a passo para configurar o agente Linux e testar a ingestão de resultados via Azure DevOps. |
 | `docs/GUIA_RECRIAR_TESTE_AZURE_DEVOPS.md` | Roteiro completo para recriar a organização, o projeto, o agente Linux e a pipeline de teste Azure DevOps. |
 | `docs/SEGURANCA_ARQUITETURA.md` | Descreve os fluxos de dados, autenticação, limites de ingestão, armazenamento e pontos de atenção para revisão de segurança. |
 | `docs/DOCUMENTACAO_ARQUIVOS.md` | Este inventário e mapa de responsabilidades dos arquivos. |
-| `main.py` | Entrada da CLI: importa resultados, gera HTML/PDF/JSON e chama os serviços do catálogo. |
+| `main.py` | Entrada da CLI: importa resultados, gera HTML/PDF e chama os serviços do catálogo. |
 | `gui.py` | Inicializa o servidor Flask, define a origem local e anuncia o endereço da interface. |
 | `models.py` | Define os modelos compartilhados de testes, suítes, métricas, histórico e relatório. |
 | `pyproject.toml` | Metadados do pacote, dependências, comandos instalados e configuração do pytest. |
@@ -33,53 +33,67 @@ código-fonte e ficam fora do Git.
 | `core/__init__.py` | Marca `core` como pacote Python. |
 | `core/xml_parser.py` | Lê `output.xml` do Robot Framework e converte suítes, testes, mensagens, artefatos e metadados para os modelos do projeto. |
 | `core/history_manager.py` | Funções auxiliares para snapshots, detecção de testes instáveis, comparação entre execuções e normalização de datas. A persistência fica em `sqlite_store.py`. |
-| `core/catalog.py` | Fachada de compatibilidade para operações de catálogo, com persistência SQLite e leitura de históricos JSON legados para migração. |
+| `core/catalog.py` | Fachada para operações de catálogo com persistência SQLite. |
 | `core/catalog_overview.py` | Calcula métricas agregadas e tendências por período para os sistemas do catálogo. |
 | `core/catalog_report.py` | Renderiza um relatório consolidado ou uma cópia estática do catálogo. |
 | `core/sqlite_store.py` | Mantém esquema, migrações, conexões, histórico, snapshots e artefatos no SQLite. |
-| `core/database_admin.py` | Cria e restaura pacotes completos de backup e localiza arquivos de artefatos sem referência no banco. |
+| `core/database_admin.py` | Localiza e remove arquivos de artefatos sem referência no banco. |
 | `core/import_service.py` | Valida e extrai ZIPs, cria uploads temporários e encaminha execuções confirmadas ao armazenamento. |
 | `core/report_renderer.py` | Monta o HTML detalhado com Jinja2 e inclui as evidências quando necessário. |
 | `core/pdf_summary.py` | Gera resumos executivos e relatórios customizados em PDF (mono e multi-sistemas com seções selecionáveis) via ReportLab. |
 | `core/azure_publish.py` | Publica opcionalmente o catálogo estático usando Azure Static Web Apps CLI. |
 | `core/web_app.py` | Cria a aplicação Flask, define rotas HTTP, controla acesso local e conecta as interfaces aos serviços. |
-| `core/web_services.py` | Valida caminhos e solicitações e oferece operações independentes de Flask para catálogo e histórico. |
+| `core/web_services.py` | Oferece consultas e operações de catálogo e histórico independentes de Flask. |
 | `core/web_jobs.py` | Executa importações em processos sequenciais, acompanha logs e erros e permite cancelamento. |
 
-## Interface web: `core/web/`
+## Interface web: `frontend/web/`
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `core/web/templates/index.html` | Estrutura da interface local para envio de ZIP, acompanhamento, manutenção e histórico. |
-| `core/web/static/app.js` | Interações da interface local, chamadas à API, importação, filtros e ações de manutenção. |
-| `core/web/static/app.css` | Estilos da interface local. |
-| `core/web/templates/public_catalog.html` | Página pública de seleção de sistemas e visão geral. |
-| `core/web/static/public_catalog.js` | Carrega o catálogo público, desenha tendências e incorpora o relatório do sistema selecionado. |
-| `core/web/static/public_catalog.css` | Estilos responsivos e temas claro/escuro do catálogo público. |
+| `frontend/web/templates/index.html` | Estrutura da interface local para envio de ZIP, acompanhamento, manutenção e histórico. |
+| `frontend/web/static/app.js` | Interações da interface local, chamadas à API, importação, filtros e ações de manutenção. |
+| `frontend/web/static/app.css` | Estilos da interface local. |
+| `frontend/web/templates/public_catalog.html` | Página pública de seleção de sistemas e visão geral. |
+| `frontend/web/static/public_catalog.js` | Carrega o catálogo público, desenha tendências e incorpora o relatório do sistema selecionado. |
+| `frontend/web/static/public_catalog.css` | Estilos responsivos e temas claro/escuro do catálogo público. |
 
 ## Relatórios e recursos
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `templates/__init__.py` | Marca `templates` como pacote Python para distribuição. |
-| `templates/report_template.html` | Documento-base do relatório standalone; inclui os fragmentos de estilo, corpo e scripts. |
-| `templates/_report_styles.html` | Estilos do relatório detalhado. |
-| `templates/_report_body.html` | Conteúdo e estrutura das abas executiva, técnica, versões e falhas. |
-| `templates/_report_scripts.html` | Gráficos, filtros e interações do relatório detalhado. |
-| `templates/catalog_template.html` | Página de catálogo que seleciona ou incorpora relatórios por sistema. |
-| `assets/__init__.py` | Marca `assets` como pacote Python para distribuição. |
-| `assets/chart.umd.min.js` | Arquivo opcional esperado para uso offline. Não há uma cópia de Chart.js versionada atualmente; sem ela, o relatório usa o CDN. |
+| `frontend/report_templates/__init__.py` | Marca os templates de relatório como pacote Python para distribuição. |
+| `frontend/report_templates/report_template.html` | Documento-base do relatório standalone; inclui os fragmentos de estilo, corpo e scripts. |
+| `frontend/report_templates/_report_styles.html` | Estilos do relatório detalhado. |
+| `frontend/report_templates/_report_body.html` | Conteúdo e estrutura das abas executiva, técnica, versões e falhas. |
+| `frontend/report_templates/_report_scripts.html` | Gráficos, filtros e interações do relatório detalhado. |
+| `frontend/report_templates/catalog_template.html` | Página de catálogo que seleciona ou incorpora relatórios por sistema. |
+| `frontend/assets/chart.umd.min.js` | Arquivo opcional esperado para uso offline. Não há uma cópia de Chart.js versionada atualmente; sem ela, o relatório usa o CDN. |
+
+## Infraestrutura: `infra/`
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `infra/azure-pipelines/test-pipeline.yml` | Pipeline de teste de integração. |
+| `infra/azure-pipelines/robot-report-import.yml` | Template reutilizável que publica os resultados do Robot no servidor. |
 
 ## Dados de exemplo e manutenção do catálogo
 
 | Arquivo | Responsabilidade |
 |---|---|
 | `example/output.xml` | Exemplo de saída do Robot Framework usado na documentação e em testes. |
-| `example/history.json` | Histórico JSON de exemplo para compatibilidade com o formato antigo. |
 | `example/login.robot` | Exemplo de suíte Robot Framework. |
 | `robot-results/README.md` | Orientações sobre os dados e arquivos mantidos no diretório `robot-results/`. |
 | `scripts/update_robot_results.py` | Comando auxiliar para listar, importar ou remover execuções do catálogo SQLite. |
-| `scripts/migrate_json_catalog.py` | Migra catálogos JSON antigos ou históricos isolados para SQLite, preservando os arquivos de origem. |
+
+## Dados locais de execução: `local-data/`
+
+Este diretório é criado conforme necessário e ignorado pelo Git. A CLI grava
+relatórios em `local-data/reports/`; quando não recebe entrada explícita, usa
+`output.xml` da raiz se existir e depois procura `local-data/input/output.xml`.
+Arquivos antigos da raiz, incluindo um banco SQLite e
+um histórico JSON legado, foram preservados em `local-data/legacy/`; eles não
+participam do catálogo atual, cujo banco padrão fica em `robot-results/`.
+Estado transitório antigo de pipeline foi preservado em `local-data/pipeline/`.
 
 ## Testes
 
@@ -90,7 +104,7 @@ de navegador são opcionais e dependem de Playwright e Chromium.
 |---|---|
 | `tests/__init__.py` | Marca `tests` como pacote Python. |
 | `tests/test_xml_parser.py` | Extração de métricas, metadados e estrutura de testes do XML. |
-| `tests/test_history_manager.py` | Persistência JSON, snapshots, comparações e identificação de flakiness. |
+| `tests/test_history_manager.py` | Snapshots, comparações e identificação de flakiness usando SQLite. |
 | `tests/test_catalog.py` | Catálogo de arquivos legado, importação e remoção. |
 | `tests/test_catalog_browser.py` | Comportamento do catálogo em navegador; execução opt-in. |
 | `tests/test_cli.py` | Argumentos, códigos de saída e fluxos da CLI. |
@@ -115,6 +129,4 @@ reutiliza o parser, o armazenamento e os renderizadores.
 ## Armazenamento atual e compatibilidade
 
 O SQLite é o armazenamento persistente da interface web, CLI e scripts de
-catálogo. JSON permanece somente como formato de entrada para migrar históricos
-antigos e como fixture de exemplo/teste; a aplicação não grava histórico em
-arquivos JSON.
+catálogo. A aplicação não lê nem grava histórico de execução em arquivos JSON.

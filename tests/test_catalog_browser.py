@@ -45,7 +45,7 @@ class TestCatalogBrowser(unittest.TestCase):
         self.page.goto(self.report.as_uri())
 
     def render(self):
-        render_catalog(str(self.catalog.root), str(self.report), "Relatório dos sistemas")
+        render_catalog(str(self.catalog.database), str(self.report), "Relatório dos sistemas")
 
     def frame(self, system):
         return self.page.frame_locator(f'iframe[data-system-id="{system}"]')

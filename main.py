@@ -36,7 +36,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--results-dir", help="Pasta que contém output.xml e evidências")
     parser.add_argument("--zip", dest="input_zip", type=Path,
                         help="Arquivo ZIP com output.xml na raiz e evidências")
-    parser.add_argument("--report", default="relatorio.html", help="Caminho do relatório HTML final")
+    parser.add_argument("--report", default="local-data/reports/relatorio.html",
+                        help="Caminho do relatório HTML final")
     parser.add_argument("--summary-json", help=argparse.SUPPRESS)
     parser.add_argument("--system-id", default="robot-tests", help="Identificador do sistema no catálogo")
     parser.add_argument("--system-name", default="Robot Tests", help="Nome exibido do sistema")
@@ -105,7 +106,12 @@ def _run(args: argparse.Namespace) -> int:
     database = Path(args.database).expanduser().resolve()
     store = SQLiteStore(database)
 
-    has_input = bool(args.catalog_report or args.results_dir or args.output_xml or (not args.pdf and Path("output.xml").is_file()))
+    # Prefer a fresh Robot Framework output at the conventional project root.
+    default_input = Path("output.xml")
+    if not default_input.is_file():
+        default_input = Path("local-data/input/output.xml")
+    has_input = bool(args.catalog_report or args.results_dir or args.output_xml or
+                     (not args.pdf and default_input.is_file()))
     if args.pdf and not has_input:
         return _generate_cli_pdf(args, store)
 
@@ -126,7 +132,7 @@ def _run(args: argparse.Namespace) -> int:
         logger.error("Pasta de resultados não encontrada: %s", results_dir)
         return 1
     output_xml = (Path(args.output_xml).expanduser().resolve() if args.output_xml
-                  else (results_dir / "output.xml" if results_dir else Path("output.xml").resolve()))
+                  else (results_dir / "output.xml" if results_dir else default_input.resolve()))
     if not output_xml.is_file():
         logger.error("Arquivo output.xml não encontrado: %s", output_xml)
         return 1

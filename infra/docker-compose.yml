@@ -1,8 +1,8 @@
 services:
   robot-report-web:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: infra/Dockerfile
     container_name: robot-report-generator
     ports:
       - "5000:5000"
@@ -14,7 +14,7 @@ services:
       - ROBOT_REPORT_DATABASE=/app/data/report_history.sqlite3
     volumes:
       - robot-report-data:/app/data
-      - ./example:/app/example
+      - ../example:/app/example
     restart: unless-stopped
 
 volumes:

@@ -1,393 +1,125 @@
-# Gerador de Relatório Customizado — Robot Framework
+# Robot Report Generator
 
-[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Robot Framework](https://img.shields.io/badge/Robot%20Framework-6.0%2B-00c0b5?logo=robotframework&logoColor=white)](https://robotframework.org/)
-[![Flask](https://img.shields.io/badge/Flask-3.0%2B-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
-[![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+Aplicação Python para importar resultados do Robot Framework (`output.xml`),
+manter histórico em SQLite e consultar relatórios HTML e PDF. Pode ser usada
+pela interface web ou pela CLI; pipelines do Azure DevOps podem enviar os
+resultados ao servidor por uma API autenticada.
 
-Gerador de relatórios HTML modernos, interativos e standalone (com CSS, JavaScript e evidências embutidos em Base64) a partir das saídas `output.xml` do **Robot Framework** (BDD + BrowserLibrary / SeleniumLibrary).
+## Requisitos e instalação
 
-Para conhecer a responsabilidade de cada arquivo e o fluxo de dados, consulte o
-[guia de arquivos do projeto](docs/DOCUMENTACAO_ARQUIVOS.md). O planejamento
-de escalabilidade está em [`docs/PLANEJAMENTO_ESCALABILIDADE.md`](docs/PLANEJAMENTO_ESCALABILIDADE.md).
-O passo a passo de configuração e teste da integração com Azure DevOps está em
-[`docs/TESTE_AZURE_DEVOPS_LOCAL.md`](docs/TESTE_AZURE_DEVOPS_LOCAL.md).
-Para refazer a configuração completa desde a criação da organização, use o
-[`guia completo do teste Azure DevOps`](docs/GUIA_RECRIAR_TESTE_AZURE_DEVOPS.md).
-Para a revisão técnica de fluxos, dados e controles de segurança, consulte
-[arquitetura e controles de segurança](docs/SEGURANCA_ARQUITETURA.md).
-
-## Arquitetura & Fluxo de Dados
-
-```mermaid
-flowchart TD
-    subgraph Inputs["Entradas de Teste"]
-        XML["output.xml (Robot Framework)"]
-        ZIP["Arquivo .zip com evidências"]
-        DIR["Diretório de resultados"]
-    end
-
-    subgraph Processing["Processamento & Núcleo (core/)"]
-        Parser["RobotOutputParser (Visitor Pattern)"]
-        Models["Models / Dataclasses (models.py)"]
-        Service["ImportService & JobManager"]
-        Store[("SQLiteStore (WAL Mode)")]
-    end
-
-    subgraph Outputs["Visualização & Relatórios"]
-        Renderer["ReportRenderer (Jinja2)"]
-        HTML["Relatório Standalone HTML"]
-        PDFGen["PDF Summary (ReportLab)"]
-        PDF["Resumo Executivo PDF"]
-        Web["Interface Web & Catálogo Público (/public)"]
-    end
-
-    XML --> Parser
-    DIR --> Parser
-    ZIP --> Service
-    Service --> Parser
-    Parser --> Models
-    Models --> Store
-    Store --> Renderer
-    Store --> Web
-    Renderer --> HTML
-    Models --> PDFGen
-    PDFGen --> PDF
-```
-
-## Estrutura do Projeto
-```
-robot_report_generator/
-├── pyproject.toml              # Metadados do pacote e entrypoints CLI (robot-report / robot-report-gui)
-├── requirements.txt            # Dependências mínimas de produção
-├── Dockerfile                  # Construção da imagem Docker da aplicação
-├── docker-compose.yml          # Serviço web local com volume persistente
-├── main.py                     # Orquestrador de linha de comando (CLI)
-├── gui.py                      # Inicialização da interface web local (Flask)
-├── models.py                   # Dataclasses tipadas (Status, SuiteResult, TestResult, ...)
-├── core/
-│   ├── xml_parser.py           # output.xml -> dataclasses (Robot Framework Visitor)
-│   ├── sqlite_store.py         # Persistência transacional do histórico SQLite
-│   ├── database_admin.py       # Backup completo, restauração e limpeza de artefatos
-│   ├── import_service.py       # Ingestão segura de ZIPs e pastas
-│   ├── report_renderer.py      # Renderização HTML standalone (Jinja2 + Base64 com cache)
-│   ├── pdf_summary.py          # Resumo executivo em PDF (ReportLab)
-│   ├── catalog.py              # Fachada unificada de operações de catálogo
-│   ├── catalog_overview.py     # Agregação de métricas e tendências por sistema
-│   ├── catalog_report.py       # Renderização consolidada e site estático
-│   ├── azure_publish.py        # Publicação opcional no Azure Static Web Apps
-│   ├── history_manager.py      # Funções de snapshots e comparação entre versões
-│   ├── web_app.py              # Rotas, autenticação e respostas HTTP da interface local
-│   ├── web_services.py         # Validação de pedidos e operações de catálogo/histórico
-│   ├── web_jobs.py             # Coordenação da fila e execução assíncrona
-│   └── web/                    # HTML, CSS e JavaScript da interface e catálogo público
-├── docs/
-│   ├── DOCUMENTACAO_ARQUIVOS.md # Inventário e guia detalhado de arquivos
-│   └── PLANEJAMENTO_ESCALABILIDADE.md # Diretrizes de evolução arquitetural
-├── scripts/
-│   ├── update_robot_results.py # Manutenção do catálogo via terminal
-│   └── migrate_json_catalog.py # Migração de catálogos JSON legados para SQLite
-├── templates/
-│   ├── report_template.html    # Estrutura principal do relatório
-│   ├── _report_styles.html     # Estilos do relatório
-│   ├── _report_body.html       # Abas executiva / técnica / versões / falhas
-│   ├── _report_scripts.html    # Interações do relatório
-│   └── catalog_template.html   # Template de catálogo consolidado
-├── assets/
-│   └── chart.umd.min.js        # (Opcional) Build UMD do Chart.js para relatório 100% offline
-└── tests/                      # Suíte de testes automatizados (unittest / pytest)
-```
-
-## Instalação
-
-### Instalação como pacote CLI (Recomendado)
-```bash
-pip install -e .
-```
-Isso disponibiliza os comandos diretos no seu terminal:
-- `robot-report`: Linha de comando para gerar relatórios.
-- `robot-report-gui`: Inicia o servidor local e abre a interface no navegador.
-
-### Instalação tradicional via requirements
-```bash
-pip install -r requirements.txt
-```
-
-> **Dica para uso 100% offline**: O relatório utiliza o Chart.js para exibir gráficos de tendência. Caso haja conexão à internet, ele carrega automaticamente via CDN da JSDelivr. Se você deseja manter o relatório estritamente offline, baixe o arquivo `chart.umd.min.js` (Chart.js 4.x UMD) e salve-o na pasta `assets/chart.umd.min.js`.
-
----
-
-## Como Usar
-
-### Envio automático pelo Azure DevOps
-
-O servidor oferece uma API de ingestão para pipelines. Configure `ROBOT_REPORT_INGEST_TOKEN` no ambiente do servidor com um segredo longo e aleatório e reinicie o serviço. No Azure DevOps, crie a variável `ROBOT_REPORT_INGEST_TOKEN` como secreta. A API usa `Authorization: Bearer ...`, independente do token da interface; mantenha o servidor atrás de HTTPS e restrinja o acesso de rede ao agente/pool da pipeline.
-
-O template reutilizável está em [`azure-pipelines/robot-report-import.yml`](azure-pipelines/robot-report-import.yml). Inclua-o no pipeline após os testes:
-
-```yaml
-- template: azure-pipelines/robot-report-import.yml
-  parameters:
-    resultsDirectory: '$(System.DefaultWorkingDirectory)/results'
-    serverUrl: 'https://relatorios.example.com'
-    systemId: 'portal'
-    systemName: 'Portal'
-    systemVersion: '$(Build.BuildNumber)'
-    failOnImportError: false
-```
-
-O diretório deve conter `output.xml` (na raiz ou dentro de uma única pasta). O template compacta os resultados, envia-os e acompanha a importação até terminar. A data é lida do XML e o servidor deduplica execuções pelo conteúdo do `output.xml`. Por padrão, problemas no envio/importação deixam o passo como alerta e preservam o resultado dos testes; `failOnImportError: true` faz o passo falhar. O limite de upload é controlado por `ROBOT_REPORT_MAX_UPLOAD_BYTES` no servidor.
-
-Os clientes de API também podem enviar `POST /api/automation/imports` como multipart com `file`, `system_id`, `system_name` e `system_version`, e consultar `GET /api/automation/imports/{import_id}` com o mesmo bearer token.
-
-### 1. Via Linha de Comando (CLI)
-Após executar seus testes com `robot`, gere o relatório apontando para a pasta de resultados:
+- Python 3.9 ou posterior.
+- Dependências instaladas no ambiente em que a aplicação será executada.
 
 ```bash
-python main.py --results-dir caminho/para/results --database robot-results/report_history.sqlite3 --report relatorio.html
+python -m pip install -e .
 ```
-ou, se instalado como pacote:
+
+Para instalar também as dependências de desenvolvimento:
+
 ```bash
-robot-report --results-dir caminho/para/results
+python -m pip install -e '.[dev]'
 ```
 
-#### Opções de Linha de Comando:
-| Parâmetro | Padrão | Descrição |
-|---|---|---|
-| `--output-xml` | `<results-dir>/output.xml` | Caminho explícito para o arquivo `output.xml`. |
-| `--results-dir` | Diretório atual | Pasta com o `output.xml` e evidências (screenshots e vídeos). |
-| `--zip` | `None` | Arquivo ZIP com `output.xml` e evidências (alternativa a `--results-dir`). |
-| `--database` | `robot-results/report_history.sqlite3` | Banco SQLite de históricos e catálogo. |
-| `--report` | `relatorio.html` | Caminho do arquivo HTML final gerado. |
-| `--system-id` | `robot-tests` | Identificador único do sistema no catálogo (letras minúsculas, números e hífens). |
-| `--system-name` | `Robot Tests` | Nome de exibição amigável do sistema. |
-| `--system-version` | `não informada` | Versão do produto/sistema testado. |
-| `--execution-date` | Automático (`output.xml`) | Data e hora ISO da execução para sobrescrever o valor do XML. |
-| `--catalog-report` | `False` | Gera o relatório consolidado de todos os sistemas a partir do SQLite. |
-| `--site-dir` | `None` | Gera uma estrutura estática web do catálogo em disco (requer `--catalog-report`). |
-| `--title` | `"Relatório de Execução — Testes BDD"` | Título exibido no cabeçalho e na aba do navegador. |
-| `--fail-on-error` | `False` | **Ideal para CI/CD**: encerra o processo com código de saída `1` se houver testes com falha. |
-| `--no-history` | `False` | Gera o relatório sem persistir nem atualizar a base SQLite. |
-| `--no-report` | `False` | Importa a execução para o SQLite sem gerar o arquivo HTML final. |
-| `--no-embed-artifacts`| `False` | Não converte imagens em Base64, referenciando-as pelo caminho relativo. |
-| `--issue-url` | `""` | Padrão de URL para links de tickets de bugs (ex.: `https://jira.empresa.com/browse/{id}`). |
-| `--pdf` | `None` | Gera relatório customizado em PDF no caminho especificado. |
-| `--pdf-systems` | Todos | Lista de IDs de sistemas separados por vírgula para o PDF (ex.: `portal,pagamentos`). |
-| `--pdf-sections` | Todas | Seções a incluir no PDF (`executive,distribution,suites,failures,history,slowest`). |
-| `--pdf-title` | `"Relatório de Testes Automatizados"` | Título exibido no cabeçalho do documento PDF. |
-
-Gerar novamente a partir do mesmo `output.xml` não adiciona uma versão repetida ao
-histórico. A CLI substitui o HTML quando recebe o mesmo caminho em `--report`.
-Execuções são identificadas pelo conteúdo de `output.xml`; importar novamente o mesmo resultado não cria duplicatas.
-
-### 2. Via interface web local
-
-Com as dependências instaladas, execute:
+## Usar a interface web
 
 ```bash
 python gui.py
-# ou
-robot-report-gui
 ```
 
-O navegador abre automaticamente. Se isso não acontecer, copie o endereço completo
-exibido no terminal (incluindo `#token=...`). Esse endereço abre a interface
-administrativa local e contém a chave de acesso à sessão; não o compartilhe. O link
-público de consulta é `/public` no mesmo servidor e não exige token.
+Abra o endereço mostrado no terminal. Ele contém o token da sessão; trate-o
+como credencial e não o compartilhe. Na interface, envie um ZIP com
+`output.xml` e evidências, selecione ou crie um sistema e importe a execução.
+O catálogo de consulta fica em `/public`; ele não exige autenticação e mostra
+os dados completos do relatório.
 
-1. Selecione um ZIP de resultados e clique em **Enviar e analisar ZIP**. O arquivo pode conter `output.xml` na raiz ou dentro de uma única pasta; a interface valida os caminhos internos e apresenta os totais encontrados.
-2. Selecione um sistema existente ou informe identificador e nome para um novo. Informe a versão do produto. A data e hora são sugeridas pelo XML e podem ser editadas; preencha manualmente quando o XML não as trouxer.
-3. Clique em **Importar execução**. Métricas e snapshots ficam no SQLite. O ZIP original e os arquivos extraídos são preservados apenas para a execução cronologicamente mais recente de cada sistema; execuções anteriores continuam disponíveis no histórico.
-4. Acompanhe a importação e abra o **link fixo**. A página pública permite selecionar sistemas e renderiza os dados atuais do SQLite no template existente; não é criado um HTML a cada ZIP. A versão do produto continua no campo de metadados existente.
-   A visão geral compara os sistemas e exibe uma linha histórica de aprovação por sistema. Ao selecionar um sistema, o link mostra o relatório completo.
-5. Consulte **Visão geral** para comparar sistemas e períodos. A área de histórico permite remover uma execução.
-6. Use **Encerrar** ou `Ctrl+C` no terminal para desligar o servidor. Fechar a aba não interrompe a fila.
+## Usar a CLI
 
-O SQLite é o armazenamento persistente da interface local, da CLI e dos scripts de catálogo. O caminho padrão é `robot-results/report_history.sqlite3` e pode ser alterado por `--database` ou `ROBOT_REPORT_DATABASE`. Catálogos JSON antigos ou um `history.json` isolado podem ser importados com `scripts/migrate_json_catalog.py`; os arquivos de origem são preservados. O limite padrão do ZIP é 500 MiB; o conteúdo expandido é limitado a 1 GiB e 10.000 arquivos. Os limites de upload e expansão podem ser configurados por `ROBOT_REPORT_MAX_UPLOAD_BYTES` e `ROBOT_REPORT_MAX_UNPACKED_BYTES`.
-
-A interface usa HTML, CSS e JavaScript locais, sem precisar de internet. O ZIP é
-enviado ao servidor que executa a aplicação; não há envio a um serviço de terceiros.
-O Python continua necessário para importar os resultados e renderizar a página quando
-ela é aberta. O relatório mantém o comportamento visual anterior, incluindo o Chart.js
-via CDN quando o arquivo opcional não foi instalado em `assets/`.
-
-As opções ficam bloqueadas durante o processamento. A fila e os logs pertencem à
-sessão atual. Em **Logs da geração**, a aba **Log completo** mostra a importação mais
-recente; **Erros** reúne falhas da sessão com pasta, motivo e detalhes do processo.
-Até 50 erros ficam em memória enquanto o servidor estiver aberto.
-O histórico SQLite e os dados da execução mais recente ficam gravados no disco. O processamento local respeita as permissões do usuário do sistema. O link `/public` não exige login e expõe o conteúdo completo dos relatórios; compartilhe-o somente se esses dados puderem ser públicos.
-
----
-
-## Executando com Docker
-
-Você pode executar tanto a interface web (Flask) quanto os comandos CLI de geração sem precisar configurar o ambiente Python localmente.
-
-### 1. Subindo a Interface Web com Docker Compose
-Para iniciar a aplicação em container:
-```bash
-docker compose up -d --build
-```
-Acesse a aplicação em seu navegador através do endereço exibido nos logs (ou `http://localhost:5000`). Para visualizar o link com o token de sessão gerado:
-```bash
-docker compose logs -f
-```
-O histórico SQLite e os arquivos da execução mais recente ficam no volume Docker `robot-report-data`. O link fixo do catálogo é `http://localhost:5000/public`; ele lê o banco e exibe a execução mais recente de cada sistema sem salvar relatórios HTML. Para usuários externos, mantenha o container em um servidor acessível, configure DNS e HTTPS em um proxy reverso e compartilhe `https://seu-dominio/public`. A interface de importação continua restrita ao endereço local configurado. O conteúdo completo do relatório é público nesse link.
-
-### 2. Construindo a Imagem Manualmente
-```bash
-docker build -t robot-report-generator .
-```
-
-### 3. Rodando o CLI via Container
-Para gerar um relatório pontual usando uma pasta de resultados da sua máquina hospedeira:
-```bash
-docker run --rm \
-  -v "$(pwd)/example:/app/example" \
-  -v "$(pwd)/output:/app/output" \
-  robot-report-generator \
-  main.py --results-dir /app/example --report /app/output/relatorio.html --no-history
-```
-
----
-
-## Sistemas e histórico
-
-A CLI importa pastas ou ZIPs diretamente para o mesmo SQLite usado pela interface:
+Gerar um relatório HTML a partir de uma pasta:
 
 ```bash
-python scripts/update_robot_results.py /caminho/resultados.zip \
-  --system pagamentos --name "Pagamentos" --version 2.4.1
-python scripts/update_robot_results.py --list
-python scripts/update_robot_results.py --list --system pagamentos
-python scripts/update_robot_results.py --system pagamentos --remove ID_COMPLETO_DA_EXECUCAO
+python main.py --results-dir example --report /tmp/relatorio.html --no-history
 ```
 
-O banco padrão fica em `robot-results/report_history.sqlite3`; use `--database` ou `ROBOT_REPORT_DATABASE` para escolher outro arquivo. A base inicia vazia. Catálogos JSON antigos são importados explicitamente com `python scripts/migrate_json_catalog.py`; a migração preserva os arquivos de origem. Para um histórico JSON isolado, informe `--history-json arquivo.json --system id --name "Nome"`.
-
-Cada importação registra métricas e snapshots no SQLite. O ZIP original e os resultados extraídos ficam arquivados somente para a execução mais recente por data e hora; execuções antigas permanecem consultáveis no histórico. O mesmo XML não é duplicado no mesmo sistema.
-
-### Backup, manutenção e estrutura do banco
-
-Na interface local, use **Baixar backup completo** para salvar um pacote ZIP com o banco SQLite e os artefatos da execução atual. **Restaurar backup** valida o SQLite e substitui o histórico e os artefatos atuais; faça isso somente quando não houver importações pendentes. Para inspeção, o pacote pode ser extraído e `report_history.sqlite3` aberto no DB Browser for SQLite.
-
-O painel de histórico permite filtrar por data, versão e resultado e remover execuções. A seção de manutenção também procura diretórios de artefatos sem registro no banco; a remoção exige confirmação e não toca em uploads pendentes. O catálogo identifica cada sistema pelo par nome/ID, evitando confusão quando há nomes repetidos.
-
-As tabelas centrais são `systems`, `executions` e `test_snapshots`. Alterações de esquema devem avançar `PRAGMA user_version` e incluir uma migração incremental em `SQLiteStore._initialize`; não apague nem recrie o banco para atualizar a aplicação. A API local documentada no código inclui `/api/database/backup`, `/api/database/restore`, `/api/artifacts/orphans` e `/api/artifacts/cleanup`.
-
-Para gerar o relatório consolidado do banco:
+Importar os resultados para o histórico e gerar o relatório:
 
 ```bash
-python main.py --catalog-report --database robot-results/report_history.sqlite3 --report relatorio.html
+python main.py --results-dir caminho/para/resultados \
+  --system-id pagamentos --system-name "Pagamentos"
 ```
 
-Também é possível gerar um site estático por sistema com `--site-dir /tmp/robot-report-site`. A geração do catálogo não grava no banco. Os arquivos do Azure Static Web Apps são opcionais e podem ser publicados localmente com `ROBOT_REPORT_SWA_TOKEN`; isso não depende de Azure DevOps.
+É possível usar `--zip` ou `--output-xml` como entrada. `python main.py --help`
+lista as opções. O banco padrão fica em
+`robot-results/report_history.sqlite3`; use `--database` ou
+`ROBOT_REPORT_DATABASE` para alterar o caminho.
+Por padrão, a CLI grava o HTML em `local-data/reports/relatorio.html`. Para
+entrada sem argumentos, prefere `output.xml` recém-gerado na raiz e usa
+`local-data/input/output.xml` como cópia local. O diretório
+`local-data/` reúne dados locais e saídas geradas e não é versionado.
 
-## Funcionalidades do Relatório HTML
+## Exportar PDF
 
-O relatório gerado é um arquivo único, interativo e responsivo:
-
-1. **Visão Executiva (PO / Gestão)**:
-   - Cards com contagem de testes (Total, Pass, Fail, Skip, Taxa de Sucesso e Duração).
-   - Gráfico de tendência histórica com histórico das últimas 30 execuções.
-   - **⏱️ Painel de Testes Mais Lentos (Top 10)**: Identifica testes demorados e potenciais gargalos.
-   - Resumo consolidado por Feature/Suíte.
-
-2. **Visão Técnica (Dev / QA)**:
-   - **🔍 Busca em Tempo Real**: Filtre testes por nome, tags ou documentação instantaneamente.
-   - **Filtros por Status**: Botões rápidos para alternar entre `[Todos]`, `[Falhas (FAIL)]`, `[Passou (PASS)]` e `[Ignorado (SKIP)]`.
-   - **🏷️ Painel de Tags**: Visualize a frequência de tags e filtre testes clicando na tag desejada.
-   - Árvore de execução expansível com botões *Expandir tudo* / *Recolher tudo*.
-   - Screenshots e vídeos sob demanda (carregados somente ao expandir o nó) com lightbox ampliado ao clicar.
-
-3. **Resumo de Falhas**:
-   - Cards detalhados com suíte, passo falho e mensagem de erro/stack trace.
-   - **📋 Botão Copiar Erro**: Copia os detalhes da falha para a área de transferência com 1 clique (para abertura ágil de chamados no Jira/GitHub).
-
-4. **Comparação de Versões**:
-   - Compara a execução selecionada com a anterior, apontando testes adicionados, removidos, mantidos ou que sofreram regressão de status.
-
-5. **Visibilidade das execuções**:
-   - No controle **Execuções visíveis**, desmarque uma execução para ocultá-la em todas as abas, seletores, gráficos e comparações.
-   - A comparação usa a execução visível anterior. **Mostrar todas** restaura as execuções sem alterar o histórico salvo.
-   - Se todas forem ocultadas, o relatório exibe um estado vazio com a opção de restaurar.
-   - A preferência fica salva por relatório no navegador quando o armazenamento está disponível; na visualização isolada da interface local, vale enquanto a página estiver aberta. O arquivo HTML original não é modificado.
-
-6. **Modo Escuro (Dark Mode)**:
-   - Alternador de tema no cabeçalho com detecção automática da preferência do sistema operacional e persistência via `localStorage`.
-
-7. **Exportação de Resumo em PDF**:
-   - Resumo executivo paginado em formato A4 voltado para lideranças, auditorias e reuniões de entrega.
-   - Apresenta cabeçalho com metadados da execução, cartões de métricas globais, matriz de resultados por suíte e listagem de falhas.
-
----
-
-## Geração de Relatório em PDF Customizado
-
-Além do relatório interativo HTML standalone, o projeto conta com geração nativa de relatórios e resumos executivos em PDF baseada em **ReportLab**:
-
-- **Customizável (1 ou Mais Sistemas)**: Permite gerar o documento para um único sistema ou consolidar múltiplos sistemas simultaneamente. Em relatórios multi-sistemas, inclui uma visão executiva consolidada inicial com cards agregados e tabela comparativa entre os sistemas, seguida pelo detalhamento de cada um com quebras de página automáticas.
-- **Seleção Granular de Informações**: O usuário pode escolher quais seções incluir:
-  - `executive`: Visão Executiva (cards de cenários, aprovação, duração).
-  - `distribution`: Barra gráfica horizontal de distribuição e legendas.
-  - `suites`: Resumo detalhado por suíte com totais e status.
-  - `failures`: Detalhamento completo de testes que falharam e mensagens de erro.
-  - `history`: Histórico recente com evolução das últimas execuções.
-  - `slowest`: Top 10 testes mais lentos e seus tempos de resposta.
-- **Via Interface Web**: No catálogo compartilhado (`/public`), clique no botão **📄 Exportar PDF** para abrir o modal de configuração interativo, escolher os sistemas e seções desejadas e baixar o PDF paginado.
-- **Via Linha de Comando (CLI)**:
-  ```bash
-  # Gerar PDF consolidado de todos os sistemas:
-  python main.py --pdf relatorio.pdf --pdf-title "Relatório Executivo de Qualidade"
-
-  # Gerar PDF filtrando sistemas específicos e seções desejadas:
-  python main.py --pdf relatorio_pagamentos.pdf \
-    --pdf-systems pagamentos,portal \
-    --pdf-sections executive,suites,failures \
-    --pdf-title "Homologação Sprint 42"
-  ```
-- **Via API Python**:
-  ```python
-  from pathlib import Path
-  from core.sqlite_store import SQLiteStore
-  from core.pdf_summary import collect_systems_data, render_custom_pdf
-
-  store = SQLiteStore("robot-results/report_history.sqlite3")
-  systems = collect_systems_data(store, ["portal", "pagamentos"])
-
-  render_custom_pdf(
-      systems=systems,
-      output_path=Path("relatorio_customizado.pdf"),
-      title="Relatório Executivo de Homologação",
-      sections=["executive", "distribution", "suites", "failures", "history", "slowest"],
-  )
-  ```
-
----
-
-## Executando os Testes Automatizados
-
-A base conta com suíte de testes unitários e de integração:
+A exportação PDF é suportada pela interface web, pela CLI e pela biblioteca
+ReportLab. Pela interface, abra `/public` e escolha **Exportar PDF**. Pela CLI:
 
 ```bash
-# Após instalar as dependências do projeto:
-python3 -m unittest discover -s tests -v
-
-# Ou com pytest (se instalado):
-pytest -v
+python main.py --pdf relatorio.pdf
+python main.py --pdf relatorio.pdf \
+  --pdf-systems pagamentos,portal \
+  --pdf-sections executive,suites,failures \
+  --pdf-title "Relatório de homologação"
 ```
 
-Os testes de navegador são opcionais e requerem Playwright e Chromium:
+As seções disponíveis são `executive`, `distribution`, `suites`, `failures`,
+`history` e `slowest`.
+
+## Azure DevOps
+
+A pipeline usa um agente para compactar e enviar os resultados. Configure
+`ROBOT_REPORT_INGEST_TOKEN` no servidor e como variável secreta na pipeline. O
+PAT do agente e o token da interface têm finalidades diferentes.
+
+- [Roteiro para recriar o teste](docs/GUIA_RECRIAR_TESTE_AZURE_DEVOPS.md)
+- [Resultado e limites do teste local](docs/TESTE_AZURE_DEVOPS_LOCAL.md)
+- [Etapas do fluxo e responsabilidades](docs/GUIA_AZURE_DEVOPS_E_ROBOT_REPORT.md)
+
+O teste realizado usou agente self-hosted e servidor na mesma máquina. Para
+agentes remotos, configure um endereço HTTPS alcançável pelo agente; o teste
+local não demonstra uma implantação de produção.
+
+## Docker
+
+Para iniciar a interface com Docker Compose:
 
 ```bash
-pip install playwright
-python -m playwright install chromium
-ROBOT_REPORT_BROWSER_TESTS=1 python -m unittest tests.test_catalog_browser -v
+docker compose -f infra/docker-compose.yml up -d --build
 ```
 
-Por padrão esses testes bloqueiam o CDN para verificar a consulta sem internet.
-Para validar também os gráficos, defina `ROBOT_REPORT_CHART_JS` com o caminho de
-um arquivo Chart.js 4 UMD local. `ROBOT_REPORT_BROWSER` permite informar o caminho
-de um Chrome/Chromium já instalado. A suíte padrão não precisa dessas dependências.
+Abra `http://localhost:5000`. Configure HTTPS e controles de rede antes de
+permitir acesso remoto.
+
+## Dados e documentação
+
+O SQLite mantém o histórico e as métricas. Os artefatos completos ficam no
+disco junto à área de dados, e o projeto conserva os artefatos da execução mais
+recente de cada sistema. Históricos antigos em JSON não são mais importados;
+novas execuções devem ser registradas no SQLite a partir dos resultados do Robot.
+
+## Organização do código
+
+- `core/`: regras de negócio, importação, armazenamento SQLite, geração de relatórios e rotas da API.
+- `frontend/`: páginas, CSS, JavaScript e templates HTML dos relatórios.
+- `infra/`: Docker Compose, Dockerfile e pipelines do Azure DevOps.
+- `tests/`: testes unitários e de integração; os testes com navegador são opt-in.
+
+- [Arquitetura e segurança](docs/SEGURANCA_ARQUITETURA.md)
+- [Inventário dos arquivos](docs/DOCUMENTACAO_ARQUIVOS.md)
+- [Planejamento de escalabilidade](docs/PLANEJAMENTO_ESCALABILIDADE.md)
+- [Apresentação de segurança em formato Markdown](docs/APRESENTACAO_SEGURANCA.md)
+
+## Desenvolvimento
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Os testes de navegador são opcionais e requerem Playwright e Chromium.

@@ -15,9 +15,7 @@ from flask import Flask, Response, abort, jsonify, render_template, request, sen
 from core.catalog_overview import PERIODS, overview as build_overview
 from core.database_admin import (
     cleanup_orphaned_artifacts as remove_orphans,
-    create_full_backup,
     orphaned_artifacts,
-    restore_full_backup,
 )
 from core.import_service import DEFAULT_MAX_UPLOAD_BYTES, ImportService, _configured_limit
 from core.report_renderer import ReportRenderer
@@ -29,10 +27,11 @@ from core.web_services import (catalog_overview, catalog_systems, list_history,
 
 def create_app(config: dict[str, Any] | None = None) -> Flask:
     """Build the Flask app and attach its import and background-job services."""
+    frontend_root = Path(__file__).resolve().parent.parent / "frontend" / "web"
     app = Flask(
         __name__,
-        template_folder="web/templates",
-        static_folder="web/static",
+        template_folder=str(frontend_root / "templates"),
+        static_folder=str(frontend_root / "static"),
     )
     if config:
         app.config.update(config)
@@ -47,12 +46,6 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         LOCAL_ORIGIN="http://127.0.0.1:5000",
         DATABASE=database,
         MAX_CONTENT_LENGTH=upload_limit + 1024 * 1024,
-    )
-    # Full database backups can include artifacts from multiple systems and be
-    # larger than the limit for a single uploaded results ZIP.
-    app.config["MAX_CONTENT_LENGTH"] = max(
-        app.config["MAX_CONTENT_LENGTH"],
-        2 * 1024 * 1024 * 1024 + 1024 * 1024,
     )
     jobs = JobManager()
     imports = ImportService(database)
@@ -276,51 +269,6 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             return jsonify(ok=True)
         except (OSError, ValueError, TypeError) as exc:
             return jsonify(error=str(exc)), 400
-
-    @app.get("/api/database/backup")
-    def download_database_backup():
-        with jobs.lock:
-            if jobs.active or jobs.closing or imports.pending:
-                return jsonify(
-                    error="Aguarde o fim das importações antes de gerar um backup completo."
-                ), 409
-        temporary = tempfile.TemporaryDirectory(prefix="robot-report-backup-")
-        directory = Path(temporary.name)
-        backup_path = directory / "robot-report-backup.zip"
-        try:
-            create_full_backup(Path(app.config["DATABASE"]), backup_path)
-            response = send_file(
-                backup_path,
-                as_attachment=True,
-                download_name="robot-report-backup.zip",
-                mimetype="application/zip",
-            )
-            response.call_on_close(temporary.cleanup)
-            return response
-        except Exception:
-            temporary.cleanup()
-            raise
-
-    @app.post("/api/database/restore")
-    def restore_database_backup():
-        upload = request.files.get("file")
-        if upload is None or not upload.filename:
-            return jsonify(error="Selecione um pacote de backup ZIP."), 400
-        with jobs.lock:
-            if jobs.active or jobs.closing or imports.pending:
-                return jsonify(
-                    error="Finalize ou descarte importações pendentes antes de restaurar o banco."
-                ), 409
-            staging = Path(tempfile.mkdtemp(prefix=".restore-upload-"))
-            try:
-                archive_path = staging / "upload.zip"
-                upload.save(archive_path)
-                restored_systems = restore_full_backup(Path(app.config["DATABASE"]), archive_path)
-            except (OSError, ValueError) as exc:
-                return jsonify(error=str(exc)), 400
-            finally:
-                shutil.rmtree(staging, ignore_errors=True)
-        return jsonify(ok=True, systems=restored_systems)
 
     @app.get("/api/artifacts/orphans")
     def list_orphaned_artifacts():

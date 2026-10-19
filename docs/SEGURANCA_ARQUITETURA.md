@@ -31,7 +31,7 @@ flowchart LR
 
 ### Pipeline de automação
 
-1. O template `azure-pipelines/robot-report-import.yml` compacta o diretório de
+1. O template `infra/azure-pipelines/robot-report-import.yml` compacta o diretório de
    resultados e envia o ZIP a `POST /api/automation/imports`.
 2. A requisição inclui `system_id`, `system_name`, `system_version` e o token
    de ingestão no cabeçalho `Authorization: Bearer`.
@@ -52,7 +52,7 @@ visualizações a partir do catálogo.
 ### Interface administrativa e CLI
 
 A interface local permite pré-visualizar e confirmar uploads, consultar o
-histórico, remover execuções, criar/restaurar backups e limpar artefatos órfãos.
+histórico, remover execuções e limpar artefatos órfãos.
 Essas operações são protegidas pelo token de sessão da interface. A CLI também
 pode importar diretamente de arquivos ou diretórios no host em que é executada.
 
@@ -93,8 +93,8 @@ removidos, embora seu resumo histórico permaneça no SQLite.
 - O servidor também verifica a origem local configurada, o cabeçalho `Origin`
   e rejeita requisições marcadas como cross-site. A interface usa cookie de
   sessão para proteger páginas de relatórios administrativos.
-- Endpoints de importação web, histórico, backup/restauração, manutenção,
-  cancelamento e encerramento ficam atrás das verificações administrativas.
+- Endpoints de importação web, histórico, manutenção, cancelamento e
+  encerramento ficam atrás das verificações administrativas.
 - O token da interface e a URL que o contém devem ser tratados como credenciais
   de sessão e não compartilhados.
 
@@ -142,7 +142,7 @@ configuração de referência não demonstra um desenho de produção, controles
 rede, gestão operacional de segredos ou isolamento de dados entre clientes.
 Esses pontos devem ser avaliados pela equipe responsável antes da publicação.
 
-O `docker-compose.yml` publica a porta 5000 no host e configura o serviço para
+O `infra/docker-compose.yml` publica a porta 5000 no host e configura o serviço para
 escutar em `0.0.0.0`; portanto, o alcance efetivo depende também do firewall,
 da rede e da configuração de publicação do host. Essa topologia é diferente
 do teste em loopback.
@@ -161,5 +161,5 @@ autenticação, autorização nem controles de rede.
 - `core/import_service.py`: upload, limites e extração segura do ZIP.
 - `core/web_jobs.py`: fila e execução do processamento.
 - `core/sqlite_store.py`: persistência, histórico e deduplicação.
-- `azure-pipelines/robot-report-import.yml`: envio e consulta de estado pela pipeline.
+- `infra/azure-pipelines/robot-report-import.yml`: envio e consulta de estado pela pipeline.
 - `docs/TESTE_AZURE_DEVOPS_LOCAL.md`: procedimento e resultados do teste local.

@@ -85,9 +85,9 @@ Copie os arquivos do projeto principal para o clone Azure. Ajuste os caminhos
 se seus diretórios forem diferentes:
 
 ```bash
-cp /caminho/para/robot_report_generator/azure-pipelines-test.yml ./azure-pipelines.yml
-mkdir -p azure-pipelines results
-cp /caminho/para/robot_report_generator/azure-pipelines/robot-report-import.yml azure-pipelines/
+cp /caminho/para/robot_report_generator/infra/azure-pipelines/test-pipeline.yml ./azure-pipelines.yml
+mkdir -p infra/azure-pipelines results
+cp /caminho/para/robot_report_generator/infra/azure-pipelines/robot-report-import.yml infra/azure-pipelines/
 cp /caminho/para/robot_report_generator/example/output.xml results/output.xml
 ```
 
@@ -103,7 +103,7 @@ pool:
   name: Default
 
 steps:
-  - template: azure-pipelines/robot-report-import.yml
+  - template: infra/azure-pipelines/robot-report-import.yml
     parameters:
       resultsDirectory: '$(Build.SourcesDirectory)/results'
       serverUrl: 'http://127.0.0.1:5001'
@@ -116,7 +116,7 @@ steps:
 Faça commit e push:
 
 ```bash
-git add azure-pipelines.yml azure-pipelines/robot-report-import.yml results/output.xml
+git add azure-pipelines.yml infra/azure-pipelines/robot-report-import.yml results/output.xml
 git commit -m "ci: configurar teste de importação no Azure DevOps"
 git push -u origin main
 ```
