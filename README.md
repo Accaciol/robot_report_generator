@@ -1,3 +1,5 @@
+> Versão alfa Ruzy para avaliação: consulte [README-RUZY-ALPHA.md](README-RUZY-ALPHA.md). Fluxo simulado; integração Azure pendente.
+
 # Gerador de Relatório Customizado — Robot Framework
 
 Gerador de relatórios HTML modernos, interativos e standalone (com CSS, JavaScript e evidências embutidos em Base64) a partir das saídas `output.xml` do **Robot Framework** (BDD + BrowserLibrary / SeleniumLibrary).

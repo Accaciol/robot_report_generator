@@ -79,7 +79,7 @@ class TestWebApp(unittest.TestCase):
         folder = self.folder('ação com espaços')
         response = self.get('/api/folders', query_string={'path':str(folder)})
         self.assertTrue(response.json['has_output'])
-        self.assertEqual(response.json['parent'], str(self.base))
+        self.assertEqual(response.json['parent'], str(self.base.resolve()))
         self.assertEqual(self.get('/api/folders', query_string={'path':str(self.base / 'absent')}).status_code, 400)
         self.assertEqual(self.start([self.base]).status_code, 400)
         self.assertEqual(self.post('/api/runs', {'folders':[]}).status_code, 400)

@@ -68,11 +68,13 @@ class Catalog:
         self.root.mkdir(parents=True, exist_ok=True)
         with (self.root / ".catalog.lock").open("a+b") as lock:
             lock.seek(0)
-            if not lock.read(1):
+            import os
+            # Reading a byte already locked by another Windows handle fails
+            # before acquire() can translate contention into the domain error.
+            if os.fstat(lock.fileno()).st_size == 0:
                 lock.write(b"0")
                 lock.flush()
             lock.seek(0)
-            import os
             if os.name == "nt":
                 import msvcrt
                 acquire = lambda: msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)

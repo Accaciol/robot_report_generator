@@ -81,6 +81,13 @@ class TestCatalog(unittest.TestCase):
                 self.catalog.import_results(source, "alpha")
         self.assertEqual(tree_bytes(self.catalog.root), before)
 
+    def test_writer_is_reusable_after_exception(self):
+        with self.assertRaisesRegex(RuntimeError, "interrupted"):
+            with self.catalog._writer():
+                raise RuntimeError("interrupted")
+        with self.catalog._writer():
+            pass
+
     def test_remove_old_current_and_last(self):
         old_id = self.catalog.import_results(make_results(self.root, 10), "alpha")
         middle_id = self.catalog.import_results(make_results(self.root, 11), "alpha")

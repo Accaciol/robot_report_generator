@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ruzy · formulário simulado</title><link rel="stylesheet" href="form.css"></head>
+<body><main>
+  <header><p class="eyebrow">RUZY · AMBIENTE DE DEMONSTRAÇÃO</p><h1>Revisar candidato a bug</h1>
+  <p>Nenhum card será criado no Azure. Os códigos SIM pertencem apenas a esta demonstração.</p></header>
+  <p id="status" role="status" aria-live="polite">Carregando o candidato…</p>
+  <section aria-labelledby="destination-title"><h2 id="destination-title">Destino configurado</h2><dl id="destination"></dl></section>
+  <form id="review" hidden>
+    <label for="title">Título do card <span>(obrigatório, até 255 caracteres)</span></label>
+    <input id="title" name="title" required maxlength="255" autocomplete="off">
+    <label for="description">Descrição e passos disponíveis</label><textarea id="description" name="description" rows="10" maxlength="50000"></textarea>
+    <section aria-labelledby="evidence-title"><h2 id="evidence-title">Evidências do relatório</h2><p>Pré-visualização local. Não representa um anexo enviado ao Azure.</p><div id="evidence"></div></section>
+    <p id="error" role="alert" class="error"></p>
+    <div class="actions"><button id="save" type="submit">Salvar na simulação e abrir próximo</button><button id="discard" class="secondary" type="button">Descartar e abrir próximo</button></div>
+  </form>
+  <p id="complete" hidden>O resultado foi enviado ao relatório de origem. Você pode fechar esta aba e conferir a cópia HTML exportada.</p>
+</main><script src="form.js"></script></body></html>
