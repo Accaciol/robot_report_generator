@@ -21,6 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ruzy = ["selenium==4.52.0", "pillow==13.0.0"]
 dev = [
     "pytest>=7.0",
 ]
@@ -28,17 +29,19 @@ dev = [
 [project.scripts]
 robot-report = "main:main"
 robot-report-gui = "gui:main"
+ruzy-local = "complemento.local_service:main"
 
 [tool.setuptools]
 py-modules = ["main", "gui", "models"]
 
 [tool.setuptools.packages.find]
-include = ["core*", "templates*", "assets*"]
+include = ["core*", "templates*", "assets*", "complemento*"]
 
 [tool.setuptools.package-data]
 core = ["web/templates/*.html", "web/static/*.css", "web/static/*.js"]
 templates = ["*.html"]
 assets = ["*.js"]
+complemento = ["report_panel.html", "local_ui/*.html", "local_ui/*.js", "local_ui/*.css"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

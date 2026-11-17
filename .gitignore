@@ -44,3 +44,8 @@ local-data/legacy/report_history.sqlite3
 *.xml
 *.txt
 *.sqlite3
+
+# Estado privado e resultados da alfa local
+.ruzy-state/
+demo/results/
+test-results/

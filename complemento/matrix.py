@@ -1,4 +1,4 @@
-"""Contrato de dados do relatório para a extensão, sem reinterpretar o XML."""
+"""Contrato de dados do relatório para a revisão local, sem reinterpretar o XML."""
 from __future__ import annotations
 
 import hashlib

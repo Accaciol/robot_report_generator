@@ -1,0 +1,8 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Ruzy · formulário fictício</title><link rel="stylesheet" href="/assets/ui.css"><script src="/assets/form.js" defer></script></head>
+<body><main><h1>Formulário fictício · nenhum card real será criado</h1>
+<form id="decision" data-candidate="{{ candidate.candidate_id }}" data-attempt="{{ attempt }}">
+<label>Título<input id="title" required maxlength="500"></label><label>Descrição<textarea id="description" maxlength="20000"></textarea></label>
+<p>Evidências apenas para consulta; não foram anexadas ao Azure.</p>
+{% for artifact in artifacts %}<figure><img src="{{ artifact.data_uri }}" alt="{{ artifact.name }}"><figcaption>{{ artifact.name }}</figcaption></figure>{% endfor %}
+<button id="save" type="submit">Salvar na simulação</button><button id="discard" type="button">Descartar e continuar</button></form>
+<p id="form-status" role="status"></p></main></body></html>

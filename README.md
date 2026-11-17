@@ -1,4 +1,4 @@
-> Versão alfa Ruzy para avaliação: consulte [README-RUZY-ALPHA.md](README-RUZY-ALPHA.md). Fluxo simulado; integração Azure pendente.
+> Alfa Ruzy local com Selenium para avaliação: consulte [README-RUZY-ALPHA.md](README-RUZY-ALPHA.md). Fluxo simulado; integração Azure pendente.
 
 # Gerador de Relatório Customizado — Robot Framework
 

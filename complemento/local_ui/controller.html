@@ -1,0 +1,14 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Ruzy local</title><link rel="stylesheet" href="/assets/ui.css"><script src="/assets/controller.js" defer></script></head>
+<body><header><h1>Ruzy local · simulação Selenium</h1><p>Nenhum item será criado no Azure. Salvar e descartar usam formulários fictícios.</p></header>
+<iframe id="report" title="Relatório Robot" sandbox="allow-scripts allow-downloads"></iframe>
+<section id="controls" hidden><h2>Revisão dos candidatos</h2>
+<form id="configuration"><label>Link do board<input name="board_url" type="url" required maxlength="2000" placeholder="https://dev.azure.com/organização/projeto/_boards/..."></label>
+<label>Tipo<input name="work_item_type" value="Bug" maxlength="500"></label>
+<label>Estado<input name="initial_state" maxlength="500"></label><label>Coluna de referência<input name="desired_column" maxlength="500"></label>
+<label>Área<input name="area_path" maxlength="500"></label><label>Iteração<input name="iteration_path" maxlength="500"></label>
+<label>Responsável<input name="assigned_to" maxlength="500"></label><label>Prioridade<input name="priority" maxlength="500"></label>
+<label>Tags<input name="tags" maxlength="500"></label><button>Preparar candidatos</button></form>
+<button id="start" hidden>Iniciar / retomar formulários simulados</button>
+<button id="html" hidden>Exportar HTML</button><button id="json" hidden>Exportar JSON</button>
+<p id="status" role="status" aria-live="polite"></p><table><thead><tr><th>Título</th><th>Decisão</th><th>Código simulado</th></tr></thead><tbody id="results"></tbody></table>
+</section></body></html>
